@@ -47,7 +47,7 @@ export const TripsListPage: React.FC<Props> = ({
             key={city.id}
             type="button"
             className="city-card"
-            onClick={() => onOpenPopular(city.id)} // ✅ передаём slug, а не название
+            onClick={() => onOpenPopular(city.id)} // ✅ передаём slug
           >
             {/* Картинки опциональны — если файла нет, просто будет серый фон */}
             {city.image && <img src={city.image} alt={city.name} />}
