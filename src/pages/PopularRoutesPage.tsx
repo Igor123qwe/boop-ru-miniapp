@@ -37,9 +37,11 @@ type WikiInfoState = {
   url: string | null
 }
 
-// ===== Вики: описания и фотки =====
+// 🔴 запасная картинка на все случаи
+const TEST_IMAGE_URL =
+  'https://upload.wikimedia.org/wikipedia/commons/6/6c/Konigsberg_Cathedral_2012_1.jpg'
 
-// Описание из Википедии
+// ===== Википедия только для текста =====
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -79,46 +81,6 @@ const fetchWikiExtract = async (
   }
 }
 
-// Фото из Википедии (берём originalimage / thumbnail из того же summary)
-const fetchWikiImages = async (rawTitle: string): Promise<string[]> => {
-  try {
-    const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
-      rawTitle
-    )}&limit=1&namespace=0&format=json&origin=*`
-
-    const searchRes = await fetch(searchUrl)
-    if (!searchRes.ok) return []
-    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
-
-    const foundTitle = searchData[1]?.[0]
-    if (!foundTitle) return []
-
-    const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
-      foundTitle
-    )}`
-    const summaryRes = await fetch(summaryUrl)
-    if (!summaryRes.ok) return []
-    const data = await summaryRes.json()
-
-    const images: string[] = []
-
-    if (data.originalimage?.source) {
-      images.push(data.originalimage.source as string)
-    }
-    if (
-      data.thumbnail?.source &&
-      data.thumbnail.source !== data.originalimage?.source
-    ) {
-      images.push(data.thumbnail.source as string)
-    }
-
-    return images
-  } catch (e) {
-    console.error('Wiki images fetch error', e)
-    return []
-  }
-}
-
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
@@ -144,7 +106,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
   const [pointImages, setPointImages] = useState<string[]>([])
 
-  // состояние описания из Википедии
+  // текст из Википедии
   const [wikiInfo, setWikiInfo] = useState<WikiInfoState>({
     loading: false,
     error: false,
@@ -192,6 +154,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
+  // фильтры
   const visibleRoutes = useMemo(() => {
     let result = [...routes]
     result = result.filter(r => r.daysCount <= maxDaysFilter)
@@ -221,36 +184,28 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  // открываем точку и сразу подгружаем для неё фото
-  const openPointModal = async (
+  // открыть точку
+  const openPointModal = (
     route: PopularRoute,
     dayTitle: string,
     point: PopularRoute['days'][number]['points'][number],
     index: number
   ) => {
-    const newState: ActivePointState = {
+    setActivePoint({
       routeId: route.id,
       routeTitle: route.title,
       dayTitle,
       pointIndex: index,
       point,
-    }
-
-    setActivePoint(newState)
+    })
     setActiveImageIndex(0)
 
-    // если у точки уже есть свои картинки
+    // если у точки есть локальные картинки – используем их
     if (point.images && point.images.length > 0) {
       setPointImages(point.images)
-      return
-    }
-
-    // иначе грузим фото из Википедии
-    setPointImages([])
-    const titleForImages = point.wikiTitle || point.title
-    const imgs = await fetchWikiImages(titleForImages)
-    if (imgs.length > 0) {
-      setPointImages(imgs)
+    } else {
+      // иначе – запасная
+      setPointImages([TEST_IMAGE_URL])
     }
   }
 
@@ -292,7 +247,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
-  // подгружаем описание точки из Википедии
+  // текст из вики
   useEffect(() => {
     if (!activePoint) return
 
@@ -348,31 +303,33 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  // когда выбираем маршрут — пробуем сразу получить фото для верхнего блока
-  const handleSelectRoute = async (route: PopularRoute) => {
+  // выбор маршрута – собираем картинки для верхнего слайдера
+  const handleSelectRoute = (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
-    setRouteImages([])
 
-    // пытаемся найти первую точку с локальными картинками
-    const firstPointWithImages = route.days
-      .flatMap(d => d.points)
-      .find(p => p.images && p.images.length > 0)
+    const images: string[] = []
 
-    if (firstPointWithImages?.images?.length) {
-      setRouteImages(firstPointWithImages.images)
-      return
+    // 1) coverImage, если есть
+    if (route.coverImage) {
+      images.push(route.coverImage)
     }
 
-    // иначе пробуем фото из Википедии по первой точке маршрута
-    const firstPoint = route.days[0]?.points[0]
-    if (!firstPoint) return
+    // 2) первые картинки из точек
+    route.days.forEach(day => {
+      day.points.forEach(point => {
+        if (point.images && point.images.length > 0) {
+          images.push(point.images[0])
+        }
+      })
+    })
 
-    const titleForImages = firstPoint.wikiTitle || firstPoint.title
-    const imgs = await fetchWikiImages(titleForImages)
-    if (imgs.length > 0) {
-      setRouteImages(imgs)
+    // 3) если всё пусто – запасная
+    if (images.length === 0) {
+      images.push(TEST_IMAGE_URL)
     }
+
+    setRouteImages(images)
   }
 
   // === экран конкретного маршрута ===
