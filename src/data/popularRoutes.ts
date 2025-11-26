@@ -1,4 +1,16 @@
-export const POPULAR_ROUTES = {
+// src/data/popularRoutes.ts
+
+export type PopularRoute = {
+  id: string
+  title: string
+  days: number
+  description: string
+  points: string[]
+}
+
+export type PopularRoutesByCity = Record<string, PopularRoute[]>
+
+export const POPULAR_ROUTES: PopularRoutesByCity = {
   Калининград: [
     {
       id: "kgd-1",
@@ -24,7 +36,7 @@ export const POPULAR_ROUTES = {
         "Фридландские ворота",
         "Амалиенау",
         "Балтийск или Янтарный",
-        "Светлогорск/Зеленоградск"
+        "Светлогорск / Зеленоградск"
       ]
     },
     {
@@ -56,6 +68,19 @@ export const POPULAR_ROUTES = {
         "Патриаршие пруды",
         "Арбат"
       ]
+    },
+    {
+      id: "msc-2",
+      title: "Москва за 2 дня",
+      days: 2,
+      description: "Центр + панорамы + музеи.",
+      points: [
+        "Красная площадь",
+        "ВДНХ",
+        "Музей космонавтики",
+        "Москва-Сити",
+        "Нескучный сад"
+      ]
     }
   ],
 
@@ -68,8 +93,9 @@ export const POPULAR_ROUTES = {
       points: [
         "Эрмитаж",
         "Дворцовый мост",
-        "Невский",
-        "Петергоф"
+        "Невский проспект",
+        "Петропавловская крепость",
+        "Петергоф (фонтаны)"
       ]
     }
   ],
@@ -83,7 +109,9 @@ export const POPULAR_ROUTES = {
       points: [
         "Олимпийский парк",
         "Красная поляна",
-        "33 водопада"
+        "Скайпарк",
+        "33 водопада",
+        "Ахштирская пещера"
       ]
     }
   ],
@@ -97,7 +125,20 @@ export const POPULAR_ROUTES = {
       points: [
         "Казанский Кремль",
         "Баумана",
-        "Чаша"
+        "Чаша",
+        "Набережная Казанки"
+      ]
+    },
+    {
+      id: "kzn-2",
+      title: "Казань за 2 дня",
+      days: 2,
+      description: "Город + окрестности.",
+      points: [
+        "Казанский Кремль",
+        "Храм всех религий",
+        "Остров Свияжск",
+        "Набережная Казанки"
       ]
     }
   ]
