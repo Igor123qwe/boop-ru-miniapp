@@ -12,19 +12,24 @@ export type PopularRouteDay = {
   points: PopularRoutePoint[]
 }
 
+export type RouteDifficulty = 'easy' | 'medium' | 'hard'
+
 export type PopularRoute = {
   id: string
-  city: string
+  city: string              // отображаемое название города, например "Калининград"
   title: string
   daysCount: number
   shortDescription: string
   days: PopularRouteDay[]
 
-  // ссылки для Яндекс.Карт
-  yandexMapUrl: string            // открыть в приложении/отдельной вкладке
-  yandexMapEmbedUrl: string       // встроенная карта (iframe)
+  // Яндекс.Карты
+  yandexMapUrl: string
+  yandexMapEmbedUrl: string
 
-  // инфа о маршруте
-  distanceKm?: number             // протяжённость, км
-  durationText?: string           // текст типа "30–40 минут в пути"
+  distanceKm?: number
+  durationText?: string
+
+  // 🔹 новые поля для фильтров/сортировки
+  difficulty?: RouteDifficulty   // сложность маршрута
+  popularity?: number            // условный рейтинг/популярность (чем больше, тем популярнее)
 }

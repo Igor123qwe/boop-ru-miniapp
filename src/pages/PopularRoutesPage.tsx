@@ -1,12 +1,11 @@
 // src/pages/PopularRoutesPage.tsx
-import React, { useState } from 'react'
-import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes/index'
+import React, { useMemo, useState } from 'react'
+import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
 import './PopularRoutesPage.css'
 
 type Props = {
-  // сюда приходит id города из TripsListPage: "kaliningrad", "moscow" и т.п.
-  city: string
+  city: string // "Калининград", "Москва" и т.п. — ключ из POPULAR_ROUTES
   onBack: () => void
 }
 
@@ -20,16 +19,25 @@ const declension = (one: string, few: string, many: string, value: number) => {
   return many
 }
 
+type SortMode = 'popularity' | 'days' | 'difficulty'
+type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
+
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
-  // маршруты для выбранного города из папки src/data/popularRoutes
   const routes = POPULAR_ROUTES[city] ?? []
-
-  // название города по-русски берём из данных маршрута
   const cityTitle = routes[0]?.city ?? city
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
+
+  // фильтры / сортировка
+  const [sortMode, setSortMode] = useState<SortMode>('popularity')
+  const [difficultyFilter, setDifficultyFilter] =
+    useState<DifficultyFilter>('all')
+
+  const maxDaysAvailable =
+    routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
+  const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
 
   const handleOpenMap = (route: PopularRoute) => {
     if (!route.yandexMapUrl) return
@@ -41,37 +49,58 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
-  // === режим просмотра деталей конкретного маршрута ===
+  // применяем фильтры и сортировку
+  const visibleRoutes = useMemo(() => {
+    let result = [...routes]
+
+    // по количеству дней
+    result = result.filter(r => r.daysCount <= maxDaysFilter)
+
+    // по сложности
+    if (difficultyFilter !== 'all') {
+      result = result.filter(
+        r => (r.difficulty ?? 'easy') === difficultyFilter
+      )
+    }
+
+    // сортировка
+    result.sort((a, b) => {
+      if (sortMode === 'days') {
+        return a.daysCount - b.daysCount
+      }
+      if (sortMode === 'difficulty') {
+        const order: DifficultyFilter[] = ['easy', 'medium', 'hard']
+        const da = order.indexOf((a.difficulty ?? 'easy') as DifficultyFilter)
+        const db = order.indexOf((b.difficulty ?? 'easy') as DifficultyFilter)
+        return da - db
+      }
+      // popularity
+      const pa = a.popularity ?? 0
+      const pb = b.popularity ?? 0
+      return pb - pa
+    })
+
+    return result
+  }, [routes, sortMode, difficultyFilter, maxDaysFilter])
+
+  // === экран конкретного маршрута ===
   if (activeRoute) {
     const hasRouteInfo =
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
     return (
-      <div className="popular-page">
-        <button
-          type="button"
-          className="back-link"
-          onClick={() => setActiveRoute(null)}
-        >
+      <div className="popular-routes-page">
+        <button className="back-btn" type="button" onClick={() => setActiveRoute(null)}>
           ← Назад к списку
         </button>
 
         <h2 className="page-title">{activeRoute.title}</h2>
-        <p className="page-subtitle">{activeRoute.shortDescription}</p>
+        <p className="route-desc">{activeRoute.shortDescription}</p>
 
-        {/* 🔹 Карта маршрута */}
+        {/* карта */}
         {activeRoute.yandexMapEmbedUrl && (
-          <div
-            style={{
-              marginBottom: 12,
-              borderRadius: 16,
-              overflow: 'hidden',
-              border: '1px solid #eee',
-              height: 220,
-              background: '#f5f5f5',
-            }}
-          >
+          <div className="route-detail-map">
             <iframe
               src={activeRoute.yandexMapEmbedUrl}
               style={{ border: 0, width: '100%', height: '100%' }}
@@ -81,18 +110,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           </div>
         )}
 
-        {/* 🔹 Информация о маршруте (км + время) */}
+        {/* инфо: км + время */}
         {hasRouteInfo && (
-          <div
-            style={{
-              marginBottom: 12,
-              fontSize: 13,
-              color: '#444',
-              padding: '8px 10px',
-              borderRadius: 12,
-              background: '#f7f7f7',
-            }}
-          >
+          <div className="route-detail-meta">
             {typeof activeRoute.distanceKm !== 'undefined' && (
               <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
             )}
@@ -102,90 +122,137 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           </div>
         )}
 
-        {/* 🔹 Кнопка "Открыть в Яндекс.Картах" */}
         <button
           type="button"
+          className="route-open-map-btn"
           onClick={() => handleOpenMap(activeRoute)}
-          style={{
-            width: '100%',
-            padding: '10px 16px',
-            borderRadius: 999,
-            border: 'none',
-            background: '#000',
-            color: '#fff',
-            fontSize: 14,
-            fontWeight: 500,
-            marginBottom: 16,
-            cursor: 'pointer',
-          }}
         >
           Открыть маршрут в Яндекс.Картах
         </button>
 
-        {activeRoute.days.map(day => (
-          <div key={day.title} className="route-day">
-            <div className="route-day-title">{day.title}</div>
-            {day.description && (
-              <p className="route-day-desc">{day.description}</p>
-            )}
+        {/* план по дням */}
+        <div className="route-days-list">
+          {activeRoute.days.map(day => (
+            <div key={day.title} className="route-day-block">
+              <div className="route-day-title">{day.title}</div>
+              {day.description && (
+                <p className="route-day-text">{day.description}</p>
+              )}
 
-            <ul className="route-points">
-              {day.points.map((point, index) => (
-                <li key={index} className="route-point">
-                  {point.time && (
-                    <span className="route-point-time">{point.time}</span>
-                  )}
-                  <div className="route-point-main">
-                    <div className="route-point-title">{point.title}</div>
-                    {point.description && (
-                      <div className="route-point-description">
-                        {point.description}
-                      </div>
+              <ul className="route-points">
+                {day.points.map((point, index) => (
+                  <li key={index} className="route-point">
+                    {point.time && (
+                      <span className="route-point-time">{point.time}</span>
                     )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+                    <div className="route-point-main">
+                      <div className="route-point-title">{point.title}</div>
+                      {point.description && (
+                        <div className="route-point-description">
+                          {point.description}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
-  // === режим списка готовых маршрутов по городу ===
+  // === список маршрутов ===
   return (
-    <div className="popular-page">
-      <button type="button" className="back-link" onClick={onBack}>
+    <div className="popular-routes-page">
+      <button className="back-btn" type="button" onClick={onBack}>
         ← Назад
       </button>
 
-      <h2 className="page-title">
-        Готовые маршруты:
-        <br />
-        {cityTitle}
-      </h2>
+      <h2 className="page-title">Готовые маршруты: {cityTitle}</h2>
 
-      {routes.length === 0 && (
-        <p className="empty-text">
-          Пока нет готовых маршрутов для этого города.
+      {/* панель фильтров / "как в отелях" */}
+      {routes.length > 0 && (
+        <div className="route-filters">
+          <div className="route-filters-row">
+            <label className="route-filter-label">
+              Сортировка
+              <select
+                className="route-filter-select"
+                value={sortMode}
+                onChange={e => setSortMode(e.target.value as SortMode)}
+              >
+                <option value="popularity">По популярности</option>
+                <option value="days">По длительности</option>
+                <option value="difficulty">По сложности</option>
+              </select>
+            </label>
+
+            <label className="route-filter-label">
+              Сложность
+              <select
+                className="route-filter-select"
+                value={difficultyFilter}
+                onChange={e =>
+                  setDifficultyFilter(e.target.value as DifficultyFilter)
+                }
+              >
+                <option value="all">Любая</option>
+                <option value="easy">Лёгкий день</option>
+                <option value="medium">Средний</option>
+                <option value="hard">Насыщенный</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="route-filters-row">
+            <label className="route-filter-label route-filter-label--full">
+              Длительность поездки
+              <div className="route-slider-row">
+                <input
+                  type="range"
+                  min={1}
+                  max={maxDaysAvailable}
+                  value={maxDaysFilter}
+                  onChange={e => setMaxDaysFilter(Number(e.target.value))}
+                  className="route-filter-range"
+                />
+                <span className="route-slider-value">
+                  До {maxDaysFilter}{' '}
+                  {declension('дня', 'дней', 'дней', maxDaysFilter)}
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {visibleRoutes.length === 0 && (
+        <p className="empty-state">
+          Нет маршрутов по выбранным параметрам. Попробуйте изменить фильтры.
         </p>
       )}
 
-      {routes.map(route => (
-        <button
-          key={route.id}
-          type="button"
-          className="route-card"
-          onClick={() => setActiveRoute(route)} // ✅ берём данные из папки и открываем детали
-        >
-          <div className="route-card-title">{route.title}</div>
-          <div className="route-card-subtitle">
-            {route.daysCount}{' '}
-            {declension('день', 'дня', 'дней', route.daysCount)}
-          </div>
-          <div className="route-card-desc">{route.shortDescription}</div>
-        </button>
-      ))}
+      <div className="routes-list">
+        {visibleRoutes.map(route => (
+          <button
+            key={route.id}
+            type="button"
+            className="route-card-btn"
+            onClick={() => setActiveRoute(route)}
+          >
+            <div className="route-header">
+              <h3>{route.title}</h3>
+              <div className="route-days">
+                {route.daysCount}{' '}
+                {declension('день', 'дня', 'дней', route.daysCount)}
+              </div>
+            </div>
+            <div className="route-desc">{route.shortDescription}</div>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

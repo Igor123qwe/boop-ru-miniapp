@@ -64,6 +64,7 @@
   padding-left: 18px;
   font-size: 13px;
 }
+
 .route-card-btn {
   width: 100%;
   text-align: left;
@@ -81,3 +82,152 @@
   background: #f6f6f6;
 }
 
+/* 🔹 панель фильтров / "ползунки" */
+
+.route-filters {
+  margin-top: 4px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: #f7f7f7;
+}
+
+.route-filters-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.route-filter-label {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  font-size: 12px;
+  color: #555;
+}
+
+.route-filter-label--full {
+  flex: 1;
+}
+
+.route-filter-select {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  font-size: 13px;
+  background: #fff;
+}
+
+.route-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.route-filter-range {
+  flex: 1;
+}
+
+.route-slider-value {
+  font-size: 12px;
+  color: #444;
+  white-space: nowrap;
+}
+
+/* 🔹 детали маршрута */
+
+.route-detail-map {
+  margin: 8px 0 12px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #eee;
+  height: 220px;
+  background: #f5f5f5;
+}
+
+.route-detail-meta {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #444;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #f1f1f1;
+}
+
+.route-open-map-btn {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: none;
+  background: #000;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+
+.route-open-map-btn:active {
+  opacity: 0.9;
+}
+
+/* список дней и точек в деталях */
+
+.route-days-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.route-day-block {
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #eee;
+}
+
+.route-day-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.route-day-text {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #555;
+}
+
+.route-points {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.route-point {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.route-point-time {
+  font-size: 12px;
+  color: #888;
+  min-width: 48px;
+}
+
+.route-point-main {
+  flex: 1;
+}
+
+.route-point-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.route-point-description {
+  font-size: 13px;
+  color: #555;
+}
