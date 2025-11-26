@@ -41,31 +41,42 @@ type WikiInfoState = {
 const makePointKey = (routeId: string, dayTitle: string, pointTitle: string) =>
   `${routeId}__${dayTitle}__${pointTitle}`
 
-// === ЗАГРУЗКА ФОТО ИЗ WIKIMEDIA COMMONS (через core/v1, берём thumbnail.url как есть) ===
+// === ЗАГРУЗКА ФОТО ИЗ WIKIMEDIA (через w/api.php + imageinfo.url) ===
 const fetchWikimediaImages = async (query: string): Promise<string[]> => {
   try {
-    const url =
-      'https://api.wikimedia.org/core/v1/commons/search/title?' +
+    const searchUrl =
+      'https://commons.wikimedia.org/w/api.php?' +
       new URLSearchParams({
-        q: query,
-        limit: '10',
+        action: 'query',
+        generator: 'search',
+        gsrsearch: query,
+        gsrlimit: '10',
+        gsrnamespace: '6', // только файлы (File:)
+        prop: 'imageinfo',
+        iiprop: 'url',
+        format: 'json',
+        origin: '*',
       })
 
-    const res = await fetch(url.toString())
+    const res = await fetch(searchUrl.toString())
     if (!res.ok) {
       console.warn('Wikimedia API error', res.status)
       return []
     }
 
     const data = await res.json()
+    if (!data.query?.pages) return []
 
-    if (!data.pages || !Array.isArray(data.pages)) return []
+    const images: string[] = []
 
-    // Берём только thumbnail.url — это готовая рабочая ссылка
-    const images: string[] = data.pages
-      .map((p: any) => p.thumbnail?.url as string | undefined)
-      .filter((u: string | undefined): u is string => Boolean(u))
+    Object.values<any>(data.query.pages).forEach(page => {
+      const info = page.imageinfo?.[0]
+      if (info?.url) {
+        images.push(info.url as string)
+      }
+    })
 
+    console.log('WM images for', query, images)
     return images
   } catch (e) {
     console.error('Wikimedia fetch error', e)
@@ -243,8 +254,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
-  // получаем актуальный список картинок для активной точки:
-  // сначала свои (point.images), если их нет — из Wikimedia
+  // актуальные картинки для активной точки
   const getActivePointImages = (): string[] => {
     if (!activePoint) return []
     if (activePoint.point.images && activePoint.point.images.length > 0) {
