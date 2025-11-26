@@ -19,4 +19,6 @@ export type PopularRoute = {
   daysCount: number
   shortDescription: string
   days: PopularRouteDay[]
+  // 🔥 ссылка на маршрут в Яндекс.Картах
+  yandexMapUrl: string
 }
