@@ -5,7 +5,7 @@ import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
 import './PopularRoutesPage.css'
 
 type Props = {
-  city: string // "Калининград", "Москва" и т.п. — ключ из POPULAR_ROUTES
+  city: string
   onBack: () => void
 }
 
@@ -37,14 +37,14 @@ type WikiInfoState = {
   url: string | null
 }
 
-// === fallback-картинка через Unsplash ===
-const buildFallbackImageUrl = (city: string, pointTitle: string) => {
-  const query = `${city} ${pointTitle}`
-  // source.unsplash.com не требует ключа и отдаёт подходящее фото
-  return `https://source.unsplash.com/600x400/?${encodeURIComponent(query)}`
-}
+// 🔴 ТЕСТОВАЯ ЖЁСТКАЯ КАРТИНКА (РАБОЧИЙ URL)
+const TEST_IMAGE_URL =
+  'https://upload.wikimedia.org/wikipedia/commons/6/6c/Konigsberg_Cathedral_2012_1.jpg'
 
-// 👇 тянем краткое описание из Википедии
+// только для информации в консоли
+console.log('TEST_IMAGE_URL IN COMPONENT:', TEST_IMAGE_URL)
+
+// Википедия для текста (оставляем как было)
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -100,14 +100,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
   const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
 
-  // главное слайдер фото маршрута
+  // слайдер фото маршрута
   const [mainImageIndex, setMainImageIndex] = useState<number>(0)
 
   // модалка точки
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
 
-  // состояние описания из Википедии
+  // текст из Википедии
   const [wikiInfo, setWikiInfo] = useState<WikiInfoState>({
     loading: false,
     error: false,
@@ -211,19 +211,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
-  // актуальные картинки для активной точки:
-  // 1) если в данных маршрута есть point.images — берём их
-  // 2) иначе — генерим fallback с Unsplash
-  const getActivePointImages = (route: PopularRoute | null): string[] => {
-    if (!activePoint || !route) return []
-    if (activePoint.point.images && activePoint.point.images.length > 0) {
-      return activePoint.point.images
-    }
-    return [buildFallbackImageUrl(route.city, activePoint.point.title)]
+  // для теста: всегда один и тот же массив из одной картинки
+  const getActivePointImages = (): string[] => {
+    if (!activePoint) return []
+    return [TEST_IMAGE_URL]
   }
 
   const showPrevImage = () => {
-    const images = getActivePointImages(activeRoute)
+    const images = getActivePointImages()
     if (images.length === 0) return
     setActiveImageIndex(prev => {
       const len = images.length
@@ -232,7 +227,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   const showNextImage = () => {
-    const images = getActivePointImages(activeRoute)
+    const images = getActivePointImages()
     if (images.length === 0) return
     setActiveImageIndex(prev => {
       const len = images.length
@@ -250,7 +245,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
-  // текст из Википедии
+  // Википедия (оставляем, как было)
   useEffect(() => {
     if (!activePoint) return
 
@@ -312,23 +307,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
-    // картинки для верхней карусели маршрута:
-    // берём первое фото точки (или fallback) для разнообразия
-    const routeImages = Array.from(
-      new Set(
-        activeRoute.days.flatMap(day =>
-          day.points.map(point => {
-            if (point.images && point.images.length > 0) {
-              return point.images[0]
-            }
-            return buildFallbackImageUrl(activeRoute.city, point.title)
-          })
-        )
-      )
-    )
-
+    // для верхнего слайдера тоже просто один и тот же URL
+    const routeImages = [TEST_IMAGE_URL]
     const mainImagesCount = routeImages.length
-    const modalImages = getActivePointImages(activeRoute)
+    const modalImages = getActivePointImages()
+
+    console.log('ROUTE IMAGES:', routeImages)
+    console.log('MODAL IMAGES:', modalImages)
 
     return (
       <div className="popular-routes-page">
@@ -343,33 +328,44 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="route-desc">{activeRoute.shortDescription}</p>
 
+        {/* ВЕРХНЯЯ КАРТИНКА (один и тот же URL) */}
         {mainImagesCount > 0 && (
           <div className="route-main-carousel">
-            {mainImagesCount > 1 && (
-              <button
-                type="button"
-                className="route-main-carousel-btn left"
-                onClick={() => showPrevMainImage(mainImagesCount)}
-              >
-                ◀
-              </button>
-            )}
+            <button
+              type="button"
+              className="route-main-carousel-btn left"
+              onClick={() => showPrevMainImage(mainImagesCount)}
+            >
+              ◀
+            </button>
+
             <img
               src={routeImages[mainImageIndex % mainImagesCount]}
               alt={activeRoute.title}
               className="route-main-carousel-image"
             />
-            {mainImagesCount > 1 && (
-              <button
-                type="button"
-                className="route-main-carousel-btn right"
-                onClick={() => showNextMainImage(mainImagesCount)}
-              >
-                ▶
-              </button>
-            )}
+
+            <button
+              type="button"
+              className="route-main-carousel-btn right"
+              onClick={() => showNextMainImage(mainImagesCount)}
+            >
+              ▶
+            </button>
           </div>
         )}
+
+        {/* ПОД КАРТИНКОЙ ПОКАЖЕМ sam src ДЛЯ ДЕБАГА */}
+        <div
+          style={{
+            fontSize: 12,
+            color: '#666',
+            wordBreak: 'break-all',
+            marginTop: 4,
+          }}
+        >
+          img src: {routeImages[mainImageIndex % mainImagesCount]}
+        </div>
 
         {hasRouteInfo && (
           <div className="route-detail-meta">
@@ -390,6 +386,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           Открыть маршрут в Яндекс.Картах
         </button>
 
+        {/* ДНИ / ТОЧКИ */}
         <div className="route-days-list">
           {activeRoute.days.map(day => (
             <div key={day.title} className="route-day-block">
@@ -425,6 +422,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ))}
         </div>
 
+        {/* КАРТА ВНИЗУ */}
         {activeRoute.yandexMapEmbedUrl && (
           <div className="route-detail-map">
             <iframe
@@ -436,6 +434,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           </div>
         )}
 
+        {/* МОДАЛКА ТОЧКИ */}
         {activePoint && (
           <div className="route-point-modal-overlay" onClick={closePointModal}>
             <div
@@ -467,31 +466,39 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
               {modalImages.length > 0 && (
                 <div className="route-point-carousel">
-                  {modalImages.length > 1 && (
-                    <button
-                      type="button"
-                      className="route-point-carousel-btn left"
-                      onClick={showPrevImage}
-                    >
-                      ◀
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="route-point-carousel-btn left"
+                    onClick={showPrevImage}
+                  >
+                    ◀
+                  </button>
                   <img
                     src={modalImages[activeImageIndex % modalImages.length]}
                     alt={activePoint.point.title}
                     className="route-point-carousel-image"
                   />
-                  {modalImages.length > 1 && (
-                    <button
-                      type="button"
-                      className="route-point-carousel-btn right"
-                      onClick={showNextImage}
-                    >
-                      ▶
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="route-point-carousel-btn right"
+                    onClick={showNextImage}
+                  >
+                    ▶
+                  </button>
                 </div>
               )}
+
+              {/* debug: показываем src и тут */}
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#666',
+                  wordBreak: 'break-all',
+                  marginTop: 4,
+                }}
+              >
+                modal img src: {modalImages[activeImageIndex % modalImages.length]}
+              </div>
 
               <div className="route-point-modal-description-block">
                 {activePoint.point.description ? (
