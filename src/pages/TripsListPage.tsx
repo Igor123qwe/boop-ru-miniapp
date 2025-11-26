@@ -43,11 +43,16 @@ export const TripsListPage: React.FC<Props> = ({
       <div className="section-title">Популярные направления</div>
       <div className="cards-grid">
         {POPULAR_CITIES.map(city => (
-          <button
-            key={city.id}
-            type="button"
-            className="city-card"
-            onClick={() => onOpenPopular(city.name)} // ✅ передаём название города
+  <button
+    key={city.id}
+    type="button"
+    className="city-card"
+    onClick={() => onOpenPopular(city.id)}  // ✅ вот так
+  >
+    {city.image && <img src={city.image} alt={city.name} />}
+    <span className="city-name">{city.name}</span>
+  </button>
+))} // ✅ передаём название города
           >
             {/* Картинки опциональны — если файла нет, просто будет серый фон */}
             {city.image && <img src={city.image} alt={city.name} />}
