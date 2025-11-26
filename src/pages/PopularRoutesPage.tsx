@@ -37,6 +37,40 @@ type WikiInfoState = {
   url: string | null
 }
 
+// ключ для кэша фоток по точкам
+const makePointKey = (routeId: string, dayTitle: string, pointTitle: string) =>
+  `${routeId}__${dayTitle}__${pointTitle}`
+
+// === загрузка фото из Wikimedia Commons ===
+const fetchWikimediaImages = async (query: string): Promise<string[]> => {
+  try {
+    const url =
+      'https://api.wikimedia.org/core/v1/commons/search/title?q=' +
+      encodeURIComponent(query) +
+      '&limit=10'
+
+    const res = await fetch(url)
+    if (!res.ok) return []
+
+    const data = await res.json()
+    if (!data.pages) return []
+
+    // достаём оригинальные url картинок
+    return data.pages
+      .map((p: any) => {
+        const thumb = p.thumbnail?.url
+        if (!thumb) return null
+
+        // превращаем миниатюру в оригинал
+        const full = thumb.replace('/thumb/', '/').replace(/\/\d+px-.+$/, '')
+        return full
+      })
+      .filter(Boolean) as string[]
+  } catch {
+    return []
+  }
+}
+
 // 👇 функция, которая по названию точки тянет краткое описание из Википедии
 const fetchWikiExtract = async (
   rawTitle: string
@@ -109,6 +143,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     extract: null,
     url: null,
   })
+
+  // кэш фоток из Wikimedia Commons по точкам
+  const [wmImages, setWmImages] = useState<Record<string, string[]>>({})
 
   const handleOpenMap = (route: PopularRoute) => {
     if (!route.yandexMapUrl) return
@@ -207,20 +244,35 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
+  // получаем актуальный список картинок для активной точки:
+  // сначала свои (point.images), если их нет — из Wikimedia
+  const getActivePointImages = (): string[] => {
+    if (!activePoint) return []
+    if (activePoint.point.images && activePoint.point.images.length > 0) {
+      return activePoint.point.images
+    }
+    const key = makePointKey(
+      activePoint.routeId,
+      activePoint.dayTitle,
+      activePoint.point.title
+    )
+    return wmImages[key] ?? []
+  }
+
   const showPrevImage = () => {
-    if (!activePoint?.point.images || activePoint.point.images.length === 0)
-      return
+    const images = getActivePointImages()
+    if (images.length === 0) return
     setActiveImageIndex(prev => {
-      const len = activePoint.point.images!.length
+      const len = images.length
       return (prev - 1 + len) % len
     })
   }
 
   const showNextImage = () => {
-    if (!activePoint?.point.images || activePoint.point.images.length === 0)
-      return
+    const images = getActivePointImages()
+    if (images.length === 0) return
     setActiveImageIndex(prev => {
-      const len = activePoint.point.images!.length
+      const len = images.length
       return (prev + 1) % len
     })
   }
@@ -292,22 +344,68 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
+  // 🔹 когда открыли модалку точки — если нет своих фото, тянем картинки из Wikimedia
+  useEffect(() => {
+    if (!activePoint) return
+
+    // если свои фото уже есть — выходим
+    if (activePoint.point.images && activePoint.point.images.length > 0) return
+
+    const titleForImages =
+      activePoint.point.wikiTitle || activePoint.point.title
+
+    const key = makePointKey(
+      activePoint.routeId,
+      activePoint.dayTitle,
+      activePoint.point.title
+    )
+
+    // если уже есть загруженные — не дёргаем API
+    if (wmImages[key]?.length) return
+
+    let cancelled = false
+
+    const loadImages = async () => {
+      const imgs = await fetchWikimediaImages(titleForImages)
+      if (cancelled || imgs.length === 0) return
+
+      setWmImages(prev => ({
+        ...prev,
+        [key]: imgs,
+      }))
+    }
+
+    loadImages()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activePoint, wmImages])
+
   // === экран конкретного маршрута ===
   if (activeRoute) {
     const hasRouteInfo =
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
-    // собираем все картинки по маршруту для верхней карусели
+    // собираем все картинки по маршруту: сначала из данных, плюс те, что подтянули из Wikimedia
     const routeImages = Array.from(
       new Set(
         activeRoute.days.flatMap(day =>
-          day.points.flatMap(point => point.images ?? [])
+          day.points.flatMap(point => {
+            const base = point.images ?? []
+            const key = makePointKey(activeRoute.id, day.title, point.title)
+            const extra = wmImages[key] ?? []
+            return [...base, ...extra]
+          })
         )
       )
     )
 
     const mainImagesCount = routeImages.length
+
+    // картинки для модалки активной точки
+    const modalImages = getActivePointImages()
 
     return (
       <div className="popular-routes-page">
@@ -448,39 +546,33 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 </button>
               </div>
 
-              {activePoint.point.images &&
-                activePoint.point.images.length > 0 && (
-                  <div className="route-point-carousel">
-                    {activePoint.point.images.length > 1 && (
-                      <button
-                        type="button"
-                        className="route-point-carousel-btn left"
-                        onClick={showPrevImage}
-                      >
-                        ◀
-                      </button>
-                    )}
-                    <img
-                      src={
-                        activePoint.point.images[
-                          activeImageIndex %
-                            activePoint.point.images.length
-                        ]
-                      }
-                      alt={activePoint.point.title}
-                      className="route-point-carousel-image"
-                    />
-                    {activePoint.point.images.length > 1 && (
-                      <button
-                        type="button"
-                        className="route-point-carousel-btn right"
-                        onClick={showNextImage}
-                      >
-                        ▶
-                      </button>
-                    )}
-                  </div>
-                )}
+              {modalImages.length > 0 && (
+                <div className="route-point-carousel">
+                  {modalImages.length > 1 && (
+                    <button
+                      type="button"
+                      className="route-point-carousel-btn left"
+                      onClick={showPrevImage}
+                    >
+                      ◀
+                    </button>
+                  )}
+                  <img
+                    src={modalImages[activeImageIndex % modalImages.length]}
+                    alt={activePoint.point.title}
+                    className="route-point-carousel-image"
+                  />
+                  {modalImages.length > 1 && (
+                    <button
+                      type="button"
+                      className="route-point-carousel-btn right"
+                      onClick={showNextImage}
+                    >
+                      ▶
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="route-point-modal-description-block">
                 {activePoint.point.description ? (
