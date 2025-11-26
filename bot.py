@@ -11,10 +11,10 @@ from aiogram.types import (
 )
 
 # === НАСТРОЙКИ ===
-# URL твоего Mini App
-WEBAPP_URL = "https://pseudomilitary-nonconcluding-jerold.ngrok-free.dev"
+# URL твоего Mini App (Vercel)
+WEBAPP_URL = "https://boop-ru-miniapp.vercel.app"
 
-# Токен твоего бота
+# Токен бота (держи в секрете, лучше потом вынести в переменную окружения)
 BOT_TOKEN = "8487290988:AAFhvkoPF-nus3hx_d_X3J0SvNSq9AOXehs"
 
 # === ЛОГИ ===
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # === ХЕНДЛЕРЫ ===
-async def cmd_start(message: Message):
+async def cmd_start(message: Message) -> None:
     """
     /start — приветствие + кнопка Mini App
     """
@@ -43,15 +43,17 @@ async def cmd_start(message: Message):
 
     text = (
         "Привет! 👋\n\n"
-        "Это твой тревел-сервис на основе реальных маршрутов.\n"
+        "Это твой тревел-сервис ProGid на основе реальных маршрутов.\n"
         "Нажми кнопку ниже, чтобы открыть мини-приложение."
     )
 
     await message.answer(text, reply_markup=kb)
 
 
-async def echo(message: Message):
-    """Ответ на любое сообщение"""
+async def echo(message: Message) -> None:
+    """
+    Ответ на любые другие сообщения
+    """
     await message.answer("Нажми /start, чтобы открыть приложение 🌍")
 
 
@@ -63,7 +65,7 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 
-async def main():
+async def main() -> None:
     bot = Bot(token=BOT_TOKEN)
     dp = create_dispatcher()
 

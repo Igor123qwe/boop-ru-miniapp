@@ -8,6 +8,7 @@ import { TripsListPage } from './pages/TripsListPage'
 import { TripDetailPage } from './pages/TripDetailPage'
 import { TripCreatePage } from './pages/TripCreatePage'
 import { MyTripsPage } from './pages/MyTripsPage'
+import { PopularRoutesPage } from './pages/PopularRoutesPage' // 🔹 новая страница
 
 type Page =
   | 'onboarding'
@@ -15,27 +16,52 @@ type Page =
   | 'tripDetail'
   | 'tripCreate'
   | 'myTrips'
+  | 'popularRoutes' // 🔹 добавили
 
 export const App: React.FC = () => {
   const { tgUser, isReady } = useTelegramWebApp()
+
   const [appUser, setAppUser] = useState<AppUser | null>(null)
   const [currentPage, setCurrentPage] = useState<Page>('onboarding')
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
+  const [selectedCity, setSelectedCity] = useState<string | null>(null) // 🔹 город для популярных маршрутов
   const [trips, setTrips] = useState<TripTemplate[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
+  // Инициализация приложения после готовности WebApp
   useEffect(() => {
     if (!isReady) return
+
+    // Если открыли не из Telegram — просто показываем онбординг
+    if (!tgUser) {
+      setAppUser(null)
+      setTrips([])
+      setCurrentPage('onboarding')
+      return
+    }
+
     const init = async () => {
-      if (tgUser) {
+      try {
+        setIsLoading(true)
+        setError(null)
+
         const user = await api.getOrCreateUserFromTelegram(tgUser.id)
         setAppUser(user)
-        setCurrentPage('tripsList')
+
         const list = await api.listTrips()
         setTrips(list)
-      } else {
+
+        setCurrentPage('tripsList')
+      } catch (e) {
+        console.error(e)
+        setError('Не удалось загрузить данные. Попробуйте ещё раз.')
         setCurrentPage('onboarding')
+      } finally {
+        setIsLoading(false)
       }
     }
+
     void init()
   }, [isReady, tgUser])
 
@@ -58,8 +84,28 @@ export const App: React.FC = () => {
     setCurrentPage('myTrips')
   }
 
+  // 🔹 открытие списка популярных маршрутов по городу
+  const handleOpenPopularRoutes = (city: string) => {
+    setSelectedCity(city)
+    setCurrentPage('popularRoutes')
+  }
+
+  // Пока Telegram WebApp не готов — показываем простой лоадер
   if (!isReady) {
-    return <div style={{ padding: 16 }}>Загрузка приложения…</div>
+    return (
+      <div
+        style={{
+          padding: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+        }}
+      >
+        Загрузка приложения…
+      </div>
+    )
   }
 
   return (
@@ -68,10 +114,29 @@ export const App: React.FC = () => {
       onGoToMyTrips={handleOpenMyTrips}
       onCreateTrip={handleCreateTripClick}
     >
+      {error && (
+        <div
+          style={{
+            margin: '8px 16px',
+            padding: '8px 12px',
+            borderRadius: 12,
+            backgroundColor: 'rgba(255,0,0,0.06)',
+            fontSize: 13,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {isLoading && currentPage === 'tripsList' && trips.length === 0 && (
+        <div style={{ padding: 16 }}>Загружаем маршруты…</div>
+      )}
+
       {currentPage === 'onboarding' && (
         <OnboardingPage
           tgUser={tgUser}
-          onContinue={() => setCurrentPage('tripsList')}
+          // Можно сразу вести в создание маршрута
+          onContinue={handleCreateTripClick}
         />
       )}
 
@@ -80,6 +145,14 @@ export const App: React.FC = () => {
           trips={trips}
           onOpenTrip={goToTripDetail}
           onCreateTrip={handleCreateTripClick}
+          onOpenPopular={handleOpenPopularRoutes} // 🔹 новый проп
+        />
+      )}
+
+      {currentPage === 'popularRoutes' && selectedCity && (
+        <PopularRoutesPage
+          city={selectedCity}
+          onBack={() => setCurrentPage('tripsList')}
         />
       )}
 
