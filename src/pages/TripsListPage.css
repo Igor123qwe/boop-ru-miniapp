@@ -49,6 +49,9 @@
   overflow: hidden;
   height: 120px;
   background: #ddd;
+  cursor: pointer;              /* ✅ теперь кликабельно */
+  border: none;
+  padding: 0;
 }
 
 .city-card img {
@@ -64,6 +67,7 @@
   color: white;
   text-shadow: 0 0 6px black;
   font-weight: 600;
+  font-size: 13px;
 }
 
 /* User Trips */
