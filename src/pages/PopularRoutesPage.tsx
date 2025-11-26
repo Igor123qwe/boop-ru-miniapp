@@ -37,54 +37,14 @@ type WikiInfoState = {
   url: string | null
 }
 
-// ключ для кэша фоток по точкам
-const makePointKey = (routeId: string, dayTitle: string, pointTitle: string) =>
-  `${routeId}__${dayTitle}__${pointTitle}`
-
-// === ЗАГРУЗКА ФОТО ИЗ WIKIMEDIA (через w/api.php + imageinfo.url) ===
-const fetchWikimediaImages = async (query: string): Promise<string[]> => {
-  try {
-    const searchUrl =
-      'https://commons.wikimedia.org/w/api.php?' +
-      new URLSearchParams({
-        action: 'query',
-        generator: 'search',
-        gsrsearch: query,
-        gsrlimit: '10',
-        gsrnamespace: '6', // только файлы (File:)
-        prop: 'imageinfo',
-        iiprop: 'url',
-        format: 'json',
-        origin: '*',
-      })
-
-    const res = await fetch(searchUrl.toString())
-    if (!res.ok) {
-      console.warn('Wikimedia API error', res.status)
-      return []
-    }
-
-    const data = await res.json()
-    if (!data.query?.pages) return []
-
-    const images: string[] = []
-
-    Object.values<any>(data.query.pages).forEach(page => {
-      const info = page.imageinfo?.[0]
-      if (info?.url) {
-        images.push(info.url as string)
-      }
-    })
-
-    console.log('WM images for', query, images)
-    return images
-  } catch (e) {
-    console.error('Wikimedia fetch error', e)
-    return []
-  }
+// === fallback-картинка через Unsplash ===
+const buildFallbackImageUrl = (city: string, pointTitle: string) => {
+  const query = `${city} ${pointTitle}`
+  // source.unsplash.com не требует ключа и отдаёт подходящее фото
+  return `https://source.unsplash.com/600x400/?${encodeURIComponent(query)}`
 }
 
-// 👇 функция, которая по названию точки тянет краткое описание из Википедии
+// 👇 тянем краткое описание из Википедии
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -154,9 +114,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     extract: null,
     url: null,
   })
-
-  // кэш фоток из Wikimedia Commons по точкам
-  const [wmImages, setWmImages] = useState<Record<string, string[]>>({})
 
   const handleOpenMap = (route: PopularRoute) => {
     if (!route.yandexMapUrl) return
@@ -254,22 +211,19 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
-  // актуальные картинки для активной точки
-  const getActivePointImages = (): string[] => {
-    if (!activePoint) return []
+  // актуальные картинки для активной точки:
+  // 1) если в данных маршрута есть point.images — берём их
+  // 2) иначе — генерим fallback с Unsplash
+  const getActivePointImages = (route: PopularRoute | null): string[] => {
+    if (!activePoint || !route) return []
     if (activePoint.point.images && activePoint.point.images.length > 0) {
       return activePoint.point.images
     }
-    const key = makePointKey(
-      activePoint.routeId,
-      activePoint.dayTitle,
-      activePoint.point.title
-    )
-    return wmImages[key] ?? []
+    return [buildFallbackImageUrl(route.city, activePoint.point.title)]
   }
 
   const showPrevImage = () => {
-    const images = getActivePointImages()
+    const images = getActivePointImages(activeRoute)
     if (images.length === 0) return
     setActiveImageIndex(prev => {
       const len = images.length
@@ -278,7 +232,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   const showNextImage = () => {
-    const images = getActivePointImages()
+    const images = getActivePointImages(activeRoute)
     if (images.length === 0) return
     setActiveImageIndex(prev => {
       const len = images.length
@@ -352,63 +306,29 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  // фотки из Wikimedia для активной точки
-  useEffect(() => {
-    if (!activePoint) return
-
-    if (activePoint.point.images && activePoint.point.images.length > 0) return
-
-    const titleForImages =
-      activePoint.point.wikiTitle || activePoint.point.title
-
-    const key = makePointKey(
-      activePoint.routeId,
-      activePoint.dayTitle,
-      activePoint.point.title
-    )
-
-    if (wmImages[key]?.length) return
-
-    let cancelled = false
-
-    const loadImages = async () => {
-      const imgs = await fetchWikimediaImages(titleForImages)
-      if (cancelled || imgs.length === 0) return
-
-      setWmImages(prev => ({
-        ...prev,
-        [key]: imgs,
-      }))
-    }
-
-    loadImages()
-
-    return () => {
-      cancelled = true
-    }
-  }, [activePoint, wmImages])
-
   // === экран конкретного маршрута ===
   if (activeRoute) {
     const hasRouteInfo =
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
+    // картинки для верхней карусели маршрута:
+    // берём первое фото точки (или fallback) для разнообразия
     const routeImages = Array.from(
       new Set(
         activeRoute.days.flatMap(day =>
-          day.points.flatMap(point => {
-            const base = point.images ?? []
-            const key = makePointKey(activeRoute.id, day.title, point.title)
-            const extra = wmImages[key] ?? []
-            return [...base, ...extra]
+          day.points.map(point => {
+            if (point.images && point.images.length > 0) {
+              return point.images[0]
+            }
+            return buildFallbackImageUrl(activeRoute.city, point.title)
           })
         )
       )
     )
 
     const mainImagesCount = routeImages.length
-    const modalImages = getActivePointImages()
+    const modalImages = getActivePointImages(activeRoute)
 
     return (
       <div className="popular-routes-page">
