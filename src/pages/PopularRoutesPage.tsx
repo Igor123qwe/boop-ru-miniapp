@@ -45,6 +45,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
   const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
 
+  // главное слайдер фото маршрута
+  const [mainImageIndex, setMainImageIndex] = useState<number>(0)
+
+  // модалка точки
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
 
@@ -59,7 +63,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   const handleAddPhoto = () => {
-    // пока заглушка — дальше можно будет подвязать загрузку
     if (webApp?.showAlert) {
       webApp.showAlert('Загрузка фото появится в следующей версии 🙌')
     } else {
@@ -100,13 +103,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     route: PopularRoute,
     dayTitle: string,
     point: PopularRoute['days'][number]['points'][number],
-    index: number,
+    index: number
   ) => {
     setActivePoint({
       routeTitle: route.title,
       dayTitle,
       pointIndex: index,
-      point,
+      point
     })
     setActiveImageIndex(0)
   }
@@ -134,29 +137,76 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
+  const showPrevMainImage = (imagesCount: number) => {
+    if (imagesCount === 0) return
+    setMainImageIndex(prev => (prev - 1 + imagesCount) % imagesCount)
+  }
+
+  const showNextMainImage = (imagesCount: number) => {
+    if (imagesCount === 0) return
+    setMainImageIndex(prev => (prev + 1) % imagesCount)
+  }
+
   // === экран конкретного маршрута ===
   if (activeRoute) {
     const hasRouteInfo =
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
+    // собираем все картинки по маршруту для верхней карусели
+    const routeImages = Array.from(
+      new Set(
+        activeRoute.days.flatMap(day =>
+          day.points.flatMap(point => point.images ?? [])
+        )
+      )
+    )
+
+    const mainImagesCount = routeImages.length
+
     return (
       <div className="popular-routes-page">
-        <button className="back-btn" type="button" onClick={() => setActiveRoute(null)}>
+        <button
+          className="back-btn"
+          type="button"
+          onClick={() => setActiveRoute(null)}
+        >
           ← Назад к списку
         </button>
 
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="route-desc">{activeRoute.shortDescription}</p>
 
-        {activeRoute.yandexMapEmbedUrl && (
-          <div className="route-detail-map">
-            <iframe
-              src={activeRoute.yandexMapEmbedUrl}
-              style={{ border: 0, width: '100%', height: '100%' }}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
+        {/* 🔹 основная карусель с фото маршрута (на месте карты) */}
+        {mainImagesCount > 0 && (
+          <div className="route-main-carousel">
+            {mainImagesCount > 1 && (
+              <button
+                type="button"
+                className="route-main-carousel-btn left"
+                onClick={() => showPrevMainImage(mainImagesCount)}
+              >
+                ◀
+              </button>
+            )}
+            <img
+              src={
+                routeImages[
+                  mainImageIndex % mainImagesCount
+                ]
+              }
+              alt={activeRoute.title}
+              className="route-main-carousel-image"
             />
+            {mainImagesCount > 1 && (
+              <button
+                type="button"
+                className="route-main-carousel-btn right"
+                onClick={() => showNextMainImage(mainImagesCount)}
+              >
+                ▶
+              </button>
+            )}
           </div>
         )}
 
@@ -178,6 +228,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         >
           Открыть маршрут в Яндекс.Картах
         </button>
+
+        {/* 🔹 карту отправили ниже */}
+        {activeRoute.yandexMapEmbedUrl && (
+          <div className="route-detail-map">
+            <iframe
+              src={activeRoute.yandexMapEmbedUrl}
+              style={{ border: 0, width: '100%', height: '100%' }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+        )}
 
         <div className="route-days-list">
           {activeRoute.days.map(day => (
@@ -374,7 +436,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             key={route.id}
             type="button"
             className="route-card-btn"
-            onClick={() => setActiveRoute(route)}
+            onClick={() => {
+              setActiveRoute(route)
+              setMainImageIndex(0)
+            }}
           >
             <div className="route-header">
               <h3>{route.title}</h3>
