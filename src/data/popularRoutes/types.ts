@@ -4,6 +4,8 @@ export type PopularRoutePoint = {
   time?: string
   title: string
   description?: string
+  // 🔹 изображения для карусели
+  images?: string[] // массив URL картинок
 }
 
 export type PopularRouteDay = {
@@ -29,7 +31,6 @@ export type PopularRoute = {
   distanceKm?: number
   durationText?: string
 
-  // 🔹 новые поля для фильтров/сортировки
-  difficulty?: RouteDifficulty   // сложность маршрута
-  popularity?: number            // условный рейтинг/популярность (чем больше, тем популярнее)
+  difficulty?: RouteDifficulty
+  popularity?: number
 }

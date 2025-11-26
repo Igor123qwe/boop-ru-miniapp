@@ -30,11 +30,21 @@
   margin-top: 8px;
 }
 
-.route-card {
+.route-card-btn {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
   border-radius: 16px;
-  padding: 12px 14px;
+  border: none;
   background: #fff;
   box-shadow: 0 0 0 1px #eee;
+  font-size: 16px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.route-card-btn:hover {
+  background: #f6f6f6;
 }
 
 .route-header {
@@ -59,30 +69,7 @@
   font-size: 14px;
 }
 
-.route-highlights {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-}
-
-.route-card-btn {
-  width: 100%;
-  text-align: left;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: none;
-  background: #fff;
-  box-shadow: 0 0 0 1px #eee;
-  font-size: 16px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.route-card-btn:hover {
-  background: #f6f6f6;
-}
-
-/* 🔹 панель фильтров / "ползунки" */
+/* фильтры */
 
 .route-filters {
   margin-top: 4px;
@@ -136,7 +123,7 @@
   white-space: nowrap;
 }
 
-/* 🔹 детали маршрута */
+/* детали маршрута */
 
 .route-detail-map {
   margin: 8px 0 12px;
@@ -173,7 +160,7 @@
   opacity: 0.9;
 }
 
-/* список дней и точек в деталях */
+/* дни и точки */
 
 .route-days-list {
   display: flex;
@@ -212,6 +199,17 @@
   margin-bottom: 6px;
 }
 
+.route-point-clickable {
+  cursor: pointer;
+}
+
+.route-point-clickable:hover {
+  background: #f8f8f8;
+  border-radius: 12px;
+  padding: 4px 6px;
+  margin: -4px -6px 2px;
+}
+
 .route-point-time {
   font-size: 12px;
   color: #888;
@@ -230,4 +228,125 @@
 .route-point-description {
   font-size: 13px;
   color: #555;
+}
+
+/* модалка точки */
+
+.route-point-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  z-index: 1000;
+}
+
+.route-point-modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 12px 14px 16px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.route-point-modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.route-point-modal-text {
+  flex: 1;
+}
+
+.route-point-modal-day {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.route-point-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.route-point-modal-time {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.route-point-modal-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.route-point-carousel {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f5f5f5;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.route-point-carousel-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.route-point-carousel-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.route-point-carousel-btn.left {
+  left: 8px;
+}
+
+.route-point-carousel-btn.right {
+  right: 8px;
+}
+
+.route-point-modal-description {
+  font-size: 13px;
+  color: #444;
+  margin: 4px 0;
+}
+
+.route-point-add-photo-btn {
+  align-self: stretch;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px dashed #aaa;
+  background: #fafafa;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.route-point-add-photo-btn:hover {
+  background: #f2f2f2;
 }

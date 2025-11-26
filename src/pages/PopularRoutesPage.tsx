@@ -22,6 +22,13 @@ const declension = (one: string, few: string, many: string, value: number) => {
 type SortMode = 'popularity' | 'days' | 'difficulty'
 type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
 
+type ActivePointState = {
+  routeTitle: string
+  dayTitle: string
+  pointIndex: number
+  point: PopularRoute['days'][number]['points'][number]
+}
+
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
@@ -30,7 +37,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
-  // фильтры / сортировка
   const [sortMode, setSortMode] = useState<SortMode>('popularity')
   const [difficultyFilter, setDifficultyFilter] =
     useState<DifficultyFilter>('all')
@@ -38,6 +44,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const maxDaysAvailable =
     routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
   const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
+
+  const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
+  const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
 
   const handleOpenMap = (route: PopularRoute) => {
     if (!route.yandexMapUrl) return
@@ -49,21 +58,25 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
-  // применяем фильтры и сортировку
+  const handleAddPhoto = () => {
+    // пока заглушка — дальше можно будет подвязать загрузку
+    if (webApp?.showAlert) {
+      webApp.showAlert('Загрузка фото появится в следующей версии 🙌')
+    } else {
+      alert('Загрузка фото появится в следующей версии 🙌')
+    }
+  }
+
   const visibleRoutes = useMemo(() => {
     let result = [...routes]
-
-    // по количеству дней
     result = result.filter(r => r.daysCount <= maxDaysFilter)
 
-    // по сложности
     if (difficultyFilter !== 'all') {
       result = result.filter(
         r => (r.difficulty ?? 'easy') === difficultyFilter
       )
     }
 
-    // сортировка
     result.sort((a, b) => {
       if (sortMode === 'days') {
         return a.daysCount - b.daysCount
@@ -74,7 +87,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         const db = order.indexOf((b.difficulty ?? 'easy') as DifficultyFilter)
         return da - db
       }
-      // popularity
+
       const pa = a.popularity ?? 0
       const pb = b.popularity ?? 0
       return pb - pa
@@ -82,6 +95,44 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
+
+  const openPointModal = (
+    route: PopularRoute,
+    dayTitle: string,
+    point: PopularRoute['days'][number]['points'][number],
+    index: number,
+  ) => {
+    setActivePoint({
+      routeTitle: route.title,
+      dayTitle,
+      pointIndex: index,
+      point,
+    })
+    setActiveImageIndex(0)
+  }
+
+  const closePointModal = () => {
+    setActivePoint(null)
+    setActiveImageIndex(0)
+  }
+
+  const showPrevImage = () => {
+    if (!activePoint?.point.images || activePoint.point.images.length === 0)
+      return
+    setActiveImageIndex(prev => {
+      const len = activePoint.point.images!.length
+      return (prev - 1 + len) % len
+    })
+  }
+
+  const showNextImage = () => {
+    if (!activePoint?.point.images || activePoint.point.images.length === 0)
+      return
+    setActiveImageIndex(prev => {
+      const len = activePoint.point.images!.length
+      return (prev + 1) % len
+    })
+  }
 
   // === экран конкретного маршрута ===
   if (activeRoute) {
@@ -98,7 +149,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="route-desc">{activeRoute.shortDescription}</p>
 
-        {/* карта */}
         {activeRoute.yandexMapEmbedUrl && (
           <div className="route-detail-map">
             <iframe
@@ -110,7 +160,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           </div>
         )}
 
-        {/* инфо: км + время */}
         {hasRouteInfo && (
           <div className="route-detail-meta">
             {typeof activeRoute.distanceKm !== 'undefined' && (
@@ -130,7 +179,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           Открыть маршрут в Яндекс.Картах
         </button>
 
-        {/* план по дням */}
         <div className="route-days-list">
           {activeRoute.days.map(day => (
             <div key={day.title} className="route-day-block">
@@ -141,7 +189,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
               <ul className="route-points">
                 {day.points.map((point, index) => (
-                  <li key={index} className="route-point">
+                  <li
+                    key={index}
+                    className="route-point route-point-clickable"
+                    onClick={() =>
+                      openPointModal(activeRoute, day.title, point, index)
+                    }
+                  >
                     {point.time && (
                       <span className="route-point-time">{point.time}</span>
                     )}
@@ -159,6 +213,87 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             </div>
           ))}
         </div>
+
+        {/* модалка точки маршрута */}
+        {activePoint && (
+          <div className="route-point-modal-overlay" onClick={closePointModal}>
+            <div
+              className="route-point-modal"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="route-point-modal-header">
+                <div className="route-point-modal-text">
+                  <div className="route-point-modal-day">
+                    {activePoint.dayTitle}
+                  </div>
+                  <div className="route-point-modal-title">
+                    {activePoint.point.title}
+                  </div>
+                  {activePoint.point.time && (
+                    <div className="route-point-modal-time">
+                      {activePoint.point.time}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="route-point-modal-close"
+                  onClick={closePointModal}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {activePoint.point.images &&
+                activePoint.point.images.length > 0 && (
+                  <div className="route-point-carousel">
+                    {activePoint.point.images.length > 1 && (
+                      <button
+                        type="button"
+                        className="route-point-carousel-btn left"
+                        onClick={showPrevImage}
+                      >
+                        ◀
+                      </button>
+                    )}
+                    <img
+                      src={
+                        activePoint.point.images[
+                          activeImageIndex %
+                            activePoint.point.images.length
+                        ]
+                      }
+                      alt={activePoint.point.title}
+                      className="route-point-carousel-image"
+                    />
+                    {activePoint.point.images.length > 1 && (
+                      <button
+                        type="button"
+                        className="route-point-carousel-btn right"
+                        onClick={showNextImage}
+                      >
+                        ▶
+                      </button>
+                    )}
+                  </div>
+                )}
+
+              {activePoint.point.description && (
+                <p className="route-point-modal-description">
+                  {activePoint.point.description}
+                </p>
+              )}
+
+              <button
+                type="button"
+                className="route-point-add-photo-btn"
+                onClick={handleAddPhoto}
+              >
+                + Добавить фото
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -172,7 +307,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
       <h2 className="page-title">Готовые маршруты: {cityTitle}</h2>
 
-      {/* панель фильтров / "как в отелях" */}
       {routes.length > 0 && (
         <div className="route-filters">
           <div className="route-filters-row">
