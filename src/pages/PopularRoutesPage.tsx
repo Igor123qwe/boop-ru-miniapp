@@ -41,32 +41,40 @@ type WikiInfoState = {
 const makePointKey = (routeId: string, dayTitle: string, pointTitle: string) =>
   `${routeId}__${dayTitle}__${pointTitle}`
 
-// === загрузка фото из Wikimedia Commons ===
+// === загрузка фото из Wikimedia Commons (оригиналы, не миниатюры) ===
 const fetchWikimediaImages = async (query: string): Promise<string[]> => {
   try {
-    const url =
-      'https://api.wikimedia.org/core/v1/commons/search/title?q=' +
-      encodeURIComponent(query) +
-      '&limit=10'
+    const searchUrl =
+      'https://commons.wikimedia.org/w/api.php?' +
+      new URLSearchParams({
+        action: 'query',
+        generator: 'search',
+        gsrlimit: '10',
+        gsrsearch: query,
+        prop: 'imageinfo',
+        iiprop: 'url',
+        format: 'json',
+        origin: '*',
+      })
 
-    const res = await fetch(url)
+    const res = await fetch(searchUrl.toString())
     if (!res.ok) return []
 
     const data = await res.json()
-    if (!data.pages) return []
+    if (!data.query?.pages) return []
 
-    // достаём оригинальные url картинок
-    return data.pages
-      .map((p: any) => {
-        const thumb = p.thumbnail?.url
-        if (!thumb) return null
+    const images: string[] = []
 
-        // превращаем миниатюру в оригинал
-        const full = thumb.replace('/thumb/', '/').replace(/\/\d+px-.+$/, '')
-        return full
-      })
-      .filter(Boolean) as string[]
-  } catch {
+    Object.values(data.query.pages).forEach((page: any) => {
+      const info = page.imageinfo?.[0]
+      if (info?.url) {
+        images.push(info.url)
+      }
+    })
+
+    return images
+  } catch (e) {
+    console.error('WM ERROR', e)
     return []
   }
 }
@@ -76,7 +84,6 @@ const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
   try {
-    // 1) ищем статью по названию
     const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
       rawTitle
     )}&limit=1&namespace=0&format=json&origin=*`
@@ -88,7 +95,6 @@ const fetchWikiExtract = async (
     const foundTitle = searchData[1]?.[0]
     if (!foundTitle) return null
 
-    // 2) забираем summary
     const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
       foundTitle
     )}`
@@ -157,7 +163,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
-  // отправка команды боту для добавления фото (оставляем как раньше)
   const handleAddPhoto = () => {
     if (!activeRoute || !activePoint) return
 
@@ -287,11 +292,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
-  // 🔹 когда открыли модалку точки — если нет description, тянем текст из Википедии
+  // текст из Википедии
   useEffect(() => {
     if (!activePoint) return
 
-    // если у точки уже есть своё описание — Википедия не нужна
     if (activePoint.point.description) {
       setWikiInfo({
         loading: false,
@@ -344,11 +348,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  // 🔹 когда открыли модалку точки — если нет своих фото, тянем картинки из Wikimedia
+  // фотки из Wikimedia для активной точки
   useEffect(() => {
     if (!activePoint) return
 
-    // если свои фото уже есть — выходим
     if (activePoint.point.images && activePoint.point.images.length > 0) return
 
     const titleForImages =
@@ -360,7 +363,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       activePoint.point.title
     )
 
-    // если уже есть загруженные — не дёргаем API
     if (wmImages[key]?.length) return
 
     let cancelled = false
@@ -388,7 +390,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
-    // собираем все картинки по маршруту: сначала из данных, плюс те, что подтянули из Wikimedia
     const routeImages = Array.from(
       new Set(
         activeRoute.days.flatMap(day =>
@@ -403,8 +404,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     )
 
     const mainImagesCount = routeImages.length
-
-    // картинки для модалки активной точки
     const modalImages = getActivePointImages()
 
     return (
@@ -420,7 +419,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="route-desc">{activeRoute.shortDescription}</p>
 
-        {/* верхняя карусель вместо карты */}
         {mainImagesCount > 0 && (
           <div className="route-main-carousel">
             {mainImagesCount > 1 && (
@@ -468,7 +466,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           Открыть маршрут в Яндекс.Картах
         </button>
 
-        {/* дни и точки */}
         <div className="route-days-list">
           {activeRoute.days.map(day => (
             <div key={day.title} className="route-day-block">
@@ -504,7 +501,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ))}
         </div>
 
-        {/* карта в самом низу */}
         {activeRoute.yandexMapEmbedUrl && (
           <div className="route-detail-map">
             <iframe
@@ -516,7 +512,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           </div>
         )}
 
-        {/* модалка точки маршрута */}
         {activePoint && (
           <div className="route-point-modal-overlay" onClick={closePointModal}>
             <div
