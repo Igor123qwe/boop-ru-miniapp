@@ -37,14 +37,45 @@ type WikiInfoState = {
   url: string | null
 }
 
-// 🔴 ТЕСТОВАЯ ЖЁСТКАЯ КАРТИНКА (РАБОЧИЙ URL)
-const TEST_IMAGE_URL =
-  'https://upload.wikimedia.org/wikipedia/commons/6/6c/Konigsberg_Cathedral_2012_1.jpg'
+// === Загрузка фото из Wikimedia Commons через w/api.php + imageinfo.url ===
+const fetchWikimediaImages = async (query: string): Promise<string[]> => {
+  try {
+    const url =
+      'https://commons.wikimedia.org/w/api.php?' +
+      new URLSearchParams({
+        action: 'query',
+        generator: 'search',
+        gsrsearch: query,
+        gsrlimit: '5',
+        gsrnamespace: '6', // только файлы
+        prop: 'imageinfo',
+        iiprop: 'url',
+        format: 'json',
+        origin: '*',
+      })
 
-// только для информации в консоли
-console.log('TEST_IMAGE_URL IN COMPONENT:', TEST_IMAGE_URL)
+    const res = await fetch(url.toString())
+    if (!res.ok) return []
 
-// Википедия для текста (оставляем как было)
+    const data = await res.json()
+    if (!data.query?.pages) return []
+
+    const images: string[] = []
+    Object.values<any>(data.query.pages).forEach(page => {
+      const info = page.imageinfo?.[0]
+      if (info?.url) {
+        images.push(info.url as string)
+      }
+    })
+
+    return images
+  } catch (e) {
+    console.error('Wikimedia fetch error', e)
+    return []
+  }
+}
+
+// Википедия для описания
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -102,12 +133,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   // слайдер фото маршрута
   const [mainImageIndex, setMainImageIndex] = useState<number>(0)
+  const [routeImages, setRouteImages] = useState<string[]>([])
 
   // модалка точки
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
+  const [pointImages, setPointImages] = useState<string[]>([])
 
-  // текст из Википедии
+  // состояние описания из Википедии
   const [wikiInfo, setWikiInfo] = useState<WikiInfoState>({
     loading: false,
     error: false,
@@ -184,25 +217,50 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  const openPointModal = (
+  // открываем точку и сразу подгружаем для неё фото
+  const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
     point: PopularRoute['days'][number]['points'][number],
     index: number
   ) => {
-    setActivePoint({
+    const newState: ActivePointState = {
       routeId: route.id,
       routeTitle: route.title,
       dayTitle,
       pointIndex: index,
       point,
-    })
+    }
+
+    setActivePoint(newState)
     setActiveImageIndex(0)
+
+    // если у точки уже есть свои картинки
+    if (point.images && point.images.length > 0) {
+      setPointImages(point.images)
+      return
+    }
+
+    // иначе грузим с Wikimedia
+    setPointImages([])
+    const titleForImages = point.wikiTitle || point.title
+    const imgs = await fetchWikimediaImages(titleForImages)
+
+    // проверяем, что модалка всё ещё про ту же точку
+    setPointImages(prev => {
+      const stillSame =
+        activePoint?.routeId === newState.routeId &&
+        activePoint?.dayTitle === newState.dayTitle &&
+        activePoint?.pointIndex === newState.pointIndex
+      if (!stillSame && activePoint !== null) return prev
+      return imgs.length > 0 ? imgs : prev
+    })
   }
 
   const closePointModal = () => {
     setActivePoint(null)
     setActiveImageIndex(0)
+    setPointImages([])
     setWikiInfo({
       loading: false,
       error: false,
@@ -211,26 +269,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
-  // для теста: всегда один и тот же массив из одной картинки
-  const getActivePointImages = (): string[] => {
-    if (!activePoint) return []
-    return [TEST_IMAGE_URL]
-  }
-
   const showPrevImage = () => {
-    const images = getActivePointImages()
-    if (images.length === 0) return
+    if (pointImages.length === 0) return
     setActiveImageIndex(prev => {
-      const len = images.length
+      const len = pointImages.length
       return (prev - 1 + len) % len
     })
   }
 
   const showNextImage = () => {
-    const images = getActivePointImages()
-    if (images.length === 0) return
+    if (pointImages.length === 0) return
     setActiveImageIndex(prev => {
-      const len = images.length
+      const len = pointImages.length
       return (prev + 1) % len
     })
   }
@@ -245,7 +295,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
-  // Википедия (оставляем, как было)
+  // подгружаем описание точки из Википедии
   useEffect(() => {
     if (!activePoint) return
 
@@ -301,26 +351,51 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
+  // когда выбираем маршрут — пробуем сразу получить фото для верхнего блока
+  const handleSelectRoute = async (route: PopularRoute) => {
+    setActiveRoute(route)
+    setMainImageIndex(0)
+    setRouteImages([])
+
+    // пытаемся найти первую точку с локальными картинками
+    const firstPointWithImages = route.days
+      .flatMap(d => d.points)
+      .find(p => p.images && p.images.length > 0)
+
+    if (firstPointWithImages?.images?.length) {
+      setRouteImages(firstPointWithImages.images)
+      return
+    }
+
+    // иначе пробуем Wikimedia по первой точке маршрута
+    const firstPoint = route.days[0]?.points[0]
+    if (!firstPoint) return
+
+    const titleForImages = firstPoint.wikiTitle || firstPoint.title
+    const imgs = await fetchWikimediaImages(titleForImages)
+    if (imgs.length > 0) {
+      setRouteImages(imgs)
+    }
+  }
+
   // === экран конкретного маршрута ===
   if (activeRoute) {
     const hasRouteInfo =
       typeof activeRoute.distanceKm !== 'undefined' ||
       typeof activeRoute.durationText !== 'undefined'
 
-    // для верхнего слайдера тоже просто один и тот же URL
-    const routeImages = [TEST_IMAGE_URL]
-    const mainImagesCount = routeImages.length
-    const modalImages = getActivePointImages()
-
-    console.log('ROUTE IMAGES:', routeImages)
-    console.log('MODAL IMAGES:', modalImages)
+    const mainImages = routeImages
+    const mainImagesCount = mainImages.length
 
     return (
       <div className="popular-routes-page">
         <button
           className="back-btn"
           type="button"
-          onClick={() => setActiveRoute(null)}
+          onClick={() => {
+            setActiveRoute(null)
+            setRouteImages([])
+          }}
         >
           ← Назад к списку
         </button>
@@ -328,44 +403,33 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="route-desc">{activeRoute.shortDescription}</p>
 
-        {/* ВЕРХНЯЯ КАРТИНКА (один и тот же URL) */}
         {mainImagesCount > 0 && (
           <div className="route-main-carousel">
-            <button
-              type="button"
-              className="route-main-carousel-btn left"
-              onClick={() => showPrevMainImage(mainImagesCount)}
-            >
-              ◀
-            </button>
-
+            {mainImagesCount > 1 && (
+              <button
+                type="button"
+                className="route-main-carousel-btn left"
+                onClick={() => showPrevMainImage(mainImagesCount)}
+              >
+                ◀
+              </button>
+            )}
             <img
-              src={routeImages[mainImageIndex % mainImagesCount]}
+              src={mainImages[mainImageIndex % mainImagesCount]}
               alt={activeRoute.title}
               className="route-main-carousel-image"
             />
-
-            <button
-              type="button"
-              className="route-main-carousel-btn right"
-              onClick={() => showNextMainImage(mainImagesCount)}
-            >
-              ▶
-            </button>
+            {mainImagesCount > 1 && (
+              <button
+                type="button"
+                className="route-main-carousel-btn right"
+                onClick={() => showNextMainImage(mainImagesCount)}
+              >
+                ▶
+              </button>
+            )}
           </div>
         )}
-
-        {/* ПОД КАРТИНКОЙ ПОКАЖЕМ sam src ДЛЯ ДЕБАГА */}
-        <div
-          style={{
-            fontSize: 12,
-            color: '#666',
-            wordBreak: 'break-all',
-            marginTop: 4,
-          }}
-        >
-          img src: {routeImages[mainImageIndex % mainImagesCount]}
-        </div>
 
         {hasRouteInfo && (
           <div className="route-detail-meta">
@@ -386,7 +450,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           Открыть маршрут в Яндекс.Картах
         </button>
 
-        {/* ДНИ / ТОЧКИ */}
         <div className="route-days-list">
           {activeRoute.days.map(day => (
             <div key={day.title} className="route-day-block">
@@ -422,7 +485,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ))}
         </div>
 
-        {/* КАРТА ВНИЗУ */}
         {activeRoute.yandexMapEmbedUrl && (
           <div className="route-detail-map">
             <iframe
@@ -434,7 +496,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           </div>
         )}
 
-        {/* МОДАЛКА ТОЧКИ */}
         {activePoint && (
           <div className="route-point-modal-overlay" onClick={closePointModal}>
             <div
@@ -464,41 +525,33 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 </button>
               </div>
 
-              {modalImages.length > 0 && (
+              {pointImages.length > 0 && (
                 <div className="route-point-carousel">
-                  <button
-                    type="button"
-                    className="route-point-carousel-btn left"
-                    onClick={showPrevImage}
-                  >
-                    ◀
-                  </button>
+                  {pointImages.length > 1 && (
+                    <button
+                      type="button"
+                      className="route-point-carousel-btn left"
+                      onClick={showPrevImage}
+                    >
+                      ◀
+                    </button>
+                  )}
                   <img
-                    src={modalImages[activeImageIndex % modalImages.length]}
+                    src={pointImages[activeImageIndex % pointImages.length]}
                     alt={activePoint.point.title}
                     className="route-point-carousel-image"
                   />
-                  <button
-                    type="button"
-                    className="route-point-carousel-btn right"
-                    onClick={showNextImage}
-                  >
-                    ▶
-                  </button>
+                  {pointImages.length > 1 && (
+                    <button
+                      type="button"
+                      className="route-point-carousel-btn right"
+                      onClick={showNextImage}
+                    >
+                      ▶
+                    </button>
+                  )}
                 </div>
               )}
-
-              {/* debug: показываем src и тут */}
-              <div
-                style={{
-                  fontSize: 12,
-                  color: '#666',
-                  wordBreak: 'break-all',
-                  marginTop: 4,
-                }}
-              >
-                modal img src: {modalImages[activeImageIndex % modalImages.length]}
-              </div>
 
               <div className="route-point-modal-description-block">
                 {activePoint.point.description ? (
@@ -621,10 +674,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             key={route.id}
             type="button"
             className="route-card-btn"
-            onClick={() => {
-              setActiveRoute(route)
-              setMainImageIndex(0)
-            }}
+            onClick={() => handleSelectRoute(route)}
           >
             <div className="route-header">
               <h3>{route.title}</h3>
