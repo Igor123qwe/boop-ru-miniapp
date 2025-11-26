@@ -3,17 +3,8 @@ import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import './PopularRoutesPage.css'
 
 type Props = {
-  city: string   // сюда прилетает id: "kaliningrad" | "moscow" | ...
+  city: string      // "Калининград", "Москва" и т.д.
   onBack: () => void
-}
-
-// Человекочитаемые названия для заголовка
-const CITY_TITLES: Record<string, string> = {
-  kaliningrad: 'Калининград',
-  moscow: 'Москва',
-  spb: 'Санкт-Петербург',
-  sochi: 'Сочи',
-  kazan: 'Казань',
 }
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
@@ -21,8 +12,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     () => POPULAR_ROUTES[city] ?? [],
     [city],
   )
-
-  const title = CITY_TITLES[city] ?? city
 
   return (
     <div className="popular-routes-page">
@@ -34,7 +23,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         ← Назад
       </button>
 
-      <h2 className="page-title">Готовые маршруты: {title}</h2>
+      <h2 className="page-title">Готовые маршруты: {city}</h2>
 
       {routes.length === 0 && (
         <div className="empty-state">
