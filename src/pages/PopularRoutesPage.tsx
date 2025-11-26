@@ -37,45 +37,9 @@ type WikiInfoState = {
   url: string | null
 }
 
-// === Загрузка фото из Wikimedia Commons через w/api.php + imageinfo.url ===
-const fetchWikimediaImages = async (query: string): Promise<string[]> => {
-  try {
-    const url =
-      'https://commons.wikimedia.org/w/api.php?' +
-      new URLSearchParams({
-        action: 'query',
-        generator: 'search',
-        gsrsearch: query,
-        gsrlimit: '5',
-        gsrnamespace: '6', // только файлы
-        prop: 'imageinfo',
-        iiprop: 'url',
-        format: 'json',
-        origin: '*',
-      })
+// ===== Вики: описания и фотки =====
 
-    const res = await fetch(url.toString())
-    if (!res.ok) return []
-
-    const data = await res.json()
-    if (!data.query?.pages) return []
-
-    const images: string[] = []
-    Object.values<any>(data.query.pages).forEach(page => {
-      const info = page.imageinfo?.[0]
-      if (info?.url) {
-        images.push(info.url as string)
-      }
-    })
-
-    return images
-  } catch (e) {
-    console.error('Wikimedia fetch error', e)
-    return []
-  }
-}
-
-// Википедия для описания
+// Описание из Википедии
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -112,6 +76,46 @@ const fetchWikiExtract = async (
     }
   } catch {
     return null
+  }
+}
+
+// Фото из Википедии (берём originalimage / thumbnail из того же summary)
+const fetchWikiImages = async (rawTitle: string): Promise<string[]> => {
+  try {
+    const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
+      rawTitle
+    )}&limit=1&namespace=0&format=json&origin=*`
+
+    const searchRes = await fetch(searchUrl)
+    if (!searchRes.ok) return []
+    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
+
+    const foundTitle = searchData[1]?.[0]
+    if (!foundTitle) return []
+
+    const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+      foundTitle
+    )}`
+    const summaryRes = await fetch(summaryUrl)
+    if (!summaryRes.ok) return []
+    const data = await summaryRes.json()
+
+    const images: string[] = []
+
+    if (data.originalimage?.source) {
+      images.push(data.originalimage.source as string)
+    }
+    if (
+      data.thumbnail?.source &&
+      data.thumbnail.source !== data.originalimage?.source
+    ) {
+      images.push(data.thumbnail.source as string)
+    }
+
+    return images
+  } catch (e) {
+    console.error('Wiki images fetch error', e)
+    return []
   }
 }
 
@@ -241,20 +245,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // иначе грузим с Wikimedia
+    // иначе грузим фото из Википедии
     setPointImages([])
     const titleForImages = point.wikiTitle || point.title
-    const imgs = await fetchWikimediaImages(titleForImages)
-
-    // проверяем, что модалка всё ещё про ту же точку
-    setPointImages(prev => {
-      const stillSame =
-        activePoint?.routeId === newState.routeId &&
-        activePoint?.dayTitle === newState.dayTitle &&
-        activePoint?.pointIndex === newState.pointIndex
-      if (!stillSame && activePoint !== null) return prev
-      return imgs.length > 0 ? imgs : prev
-    })
+    const imgs = await fetchWikiImages(titleForImages)
+    if (imgs.length > 0) {
+      setPointImages(imgs)
+    }
   }
 
   const closePointModal = () => {
@@ -367,12 +364,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // иначе пробуем Wikimedia по первой точке маршрута
+    // иначе пробуем фото из Википедии по первой точке маршрута
     const firstPoint = route.days[0]?.points[0]
     if (!firstPoint) return
 
     const titleForImages = firstPoint.wikiTitle || firstPoint.title
-    const imgs = await fetchWikimediaImages(titleForImages)
+    const imgs = await fetchWikiImages(titleForImages)
     if (imgs.length > 0) {
       setRouteImages(imgs)
     }
