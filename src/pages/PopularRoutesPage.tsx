@@ -1,5 +1,5 @@
 // src/pages/PopularRoutesPage.tsx
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
 import './PopularRoutesPage.css'
@@ -23,10 +23,60 @@ type SortMode = 'popularity' | 'days' | 'difficulty'
 type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
 
 type ActivePointState = {
+  routeId: string
   routeTitle: string
   dayTitle: string
   pointIndex: number
   point: PopularRoute['days'][number]['points'][number]
+}
+
+type WikiInfoState = {
+  loading: boolean
+  error: boolean
+  extract: string | null
+  url: string | null
+}
+
+// 👇 функция, которая по названию точки тянет краткое описание из Википедии
+const fetchWikiExtract = async (
+  rawTitle: string
+): Promise<{ extract: string; url: string } | null> => {
+  try {
+    // 1) ищем статью по названию
+    const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
+      rawTitle
+    )}&limit=1&namespace=0&format=json&origin=*`
+
+    const searchRes = await fetch(searchUrl)
+    if (!searchRes.ok) return null
+    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
+
+    const foundTitle = searchData[1]?.[0]
+    if (!foundTitle) return null
+
+    // 2) забираем summary
+    const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+      foundTitle
+    )}`
+    const summaryRes = await fetch(summaryUrl)
+    if (!summaryRes.ok) return null
+    const summaryData = await summaryRes.json()
+
+    const extract =
+      (summaryData.extract as string | undefined) ??
+      (summaryData.description as string | undefined) ??
+      null
+    const url = (summaryData.content_urls?.desktop?.page as string | undefined) ?? null
+
+    if (!extract) return null
+
+    return {
+      extract,
+      url: url ?? `https://ru.wikipedia.org/wiki/${encodeURIComponent(foundTitle)}`,
+    }
+  } catch {
+    return null
+  }
 }
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
@@ -52,6 +102,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
 
+  // состояние описания из Википедии
+  const [wikiInfo, setWikiInfo] = useState<WikiInfoState>({
+    loading: false,
+    error: false,
+    extract: null,
+    url: null,
+  })
+
   const handleOpenMap = (route: PopularRoute) => {
     if (!route.yandexMapUrl) return
 
@@ -62,11 +120,34 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
+  // отправка команды боту для добавления фото (оставляем как раньше)
   const handleAddPhoto = () => {
+    if (!activeRoute || !activePoint) return
+
+    const payload = {
+      type: 'add_place_photo',
+      routeId: activeRoute.id,
+      routeTitle: activeRoute.title,
+      city: activeRoute.city,
+      dayTitle: activePoint.dayTitle,
+      pointTitle: activePoint.point.title,
+      pointTime: activePoint.point.time ?? null,
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    }
+
     if (webApp?.showAlert) {
-      webApp.showAlert('Загрузка фото появится в следующей версии 🙌')
+      webApp.showAlert(
+        'Мы отправили запрос боту.\nПросто прикрепите фото этого места в чат — мы добавим его к маршруту.'
+      )
     } else {
-      alert('Загрузка фото появится в следующей версии 🙌')
+      alert(
+        'Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.'
+      )
     }
   }
 
@@ -106,10 +187,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     index: number
   ) => {
     setActivePoint({
+      routeId: route.id,
       routeTitle: route.title,
       dayTitle,
       pointIndex: index,
-      point
+      point,
     })
     setActiveImageIndex(0)
   }
@@ -117,6 +199,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const closePointModal = () => {
     setActivePoint(null)
     setActiveImageIndex(0)
+    setWikiInfo({
+      loading: false,
+      error: false,
+      extract: null,
+      url: null,
+    })
   }
 
   const showPrevImage = () => {
@@ -146,6 +234,63 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (imagesCount === 0) return
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
+
+  // 🔹 когда открыли модалку точки — если нет description, тянем текст из Википедии
+  useEffect(() => {
+    if (!activePoint) return
+
+    // если у точки уже есть своё описание — Википедия не нужна
+    if (activePoint.point.description) {
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: null,
+        url: null,
+      })
+      return
+    }
+
+    const titleForWiki =
+      activePoint.point.wikiTitle || activePoint.point.title
+
+    let isCancelled = false
+
+    const loadWiki = async () => {
+      setWikiInfo({
+        loading: true,
+        error: false,
+        extract: null,
+        url: null,
+      })
+
+      const data = await fetchWikiExtract(titleForWiki)
+
+      if (isCancelled) return
+
+      if (!data) {
+        setWikiInfo({
+          loading: false,
+          error: true,
+          extract: null,
+          url: null,
+        })
+        return
+      }
+
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: data.extract,
+        url: data.url,
+      })
+    }
+
+    loadWiki()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [activePoint])
 
   // === экран конкретного маршрута ===
   if (activeRoute) {
@@ -261,7 +406,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ))}
         </div>
 
-        {/* ⬇️ карту перенесли в самый низ, после маршрута */}
+        {/* карта в самом низу */}
         {activeRoute.yandexMapEmbedUrl && (
           <div className="route-detail-map">
             <iframe
@@ -337,11 +482,36 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 )}
 
-              {activePoint.point.description && (
-                <p className="route-point-modal-description">
-                  {activePoint.point.description}
-                </p>
-              )}
+              <div className="route-point-modal-description-block">
+                {activePoint.point.description ? (
+                  <p className="route-point-modal-description">
+                    {activePoint.point.description}
+                  </p>
+                ) : wikiInfo.loading ? (
+                  <p className="route-point-modal-description route-point-modal-description--muted">
+                    Загружаем описание места…
+                  </p>
+                ) : wikiInfo.extract ? (
+                  <p className="route-point-modal-description">
+                    {wikiInfo.extract}
+                  </p>
+                ) : (
+                  <p className="route-point-modal-description route-point-modal-description--muted">
+                    Описание пока не добавлено.
+                  </p>
+                )}
+
+                {wikiInfo.url && (
+                  <a
+                    href={wikiInfo.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="route-point-modal-source"
+                  >
+                    Подробнее на Википедии
+                  </a>
+                )}
+              </div>
 
               <button
                 type="button"
