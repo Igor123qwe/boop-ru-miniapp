@@ -177,7 +177,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="route-desc">{activeRoute.shortDescription}</p>
 
-        {/* 🔹 основная карусель с фото маршрута (на месте карты) */}
+        {/* верхняя карусель вместо карты */}
         {mainImagesCount > 0 && (
           <div className="route-main-carousel">
             {mainImagesCount > 1 && (
@@ -190,11 +190,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               </button>
             )}
             <img
-              src={
-                routeImages[
-                  mainImageIndex % mainImagesCount
-                ]
-              }
+              src={routeImages[mainImageIndex % mainImagesCount]}
               alt={activeRoute.title}
               className="route-main-carousel-image"
             />
@@ -229,18 +225,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           Открыть маршрут в Яндекс.Картах
         </button>
 
-        {/* 🔹 карту отправили ниже */}
-        {activeRoute.yandexMapEmbedUrl && (
-          <div className="route-detail-map">
-            <iframe
-              src={activeRoute.yandexMapEmbedUrl}
-              style={{ border: 0, width: '100%', height: '100%' }}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-          </div>
-        )}
-
+        {/* дни и точки */}
         <div className="route-days-list">
           {activeRoute.days.map(day => (
             <div key={day.title} className="route-day-block">
@@ -275,6 +260,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             </div>
           ))}
         </div>
+
+        {/* ⬇️ карту перенесли в самый низ, после маршрута */}
+        {activeRoute.yandexMapEmbedUrl && (
+          <div className="route-detail-map">
+            <iframe
+              src={activeRoute.yandexMapEmbedUrl}
+              style={{ border: 0, width: '100%', height: '100%' }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+        )}
 
         {/* модалка точки маршрута */}
         {activePoint && (
