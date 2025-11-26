@@ -7,10 +7,38 @@ type Props = {
 }
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
-  const routes = POPULAR_ROUTES[city] ?? []
+  // 👇 тут больше не упадём, даже если POPULAR_ROUTES будет undefined
+  const routes: PopularRoute[] = POPULAR_ROUTES?.[city] ?? []
 
-  // Локальное состояние: выбранный маршрут (для «второго шага»)
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
+
+  // маленький лог, чтобы убедиться что данные есть
+  console.log('POPULAR_ROUTES:', POPULAR_ROUTES)
+  console.log('city:', city)
+  console.log('routes:', routes)
+
+  // если город не найден или нет маршрутов — показываем понятный текст
+  if (!activeRoute && routes.length === 0) {
+    return (
+      <div style={{ padding: 16 }}>
+        <button
+          onClick={onBack}
+          style={{
+            border: '1px solid #ddd',
+            borderRadius: 999,
+            padding: '6px 12px',
+            background: '#fff',
+            fontSize: 14,
+            marginBottom: 16,
+            cursor: 'pointer',
+          }}
+        >
+          ← Назад
+        </button>
+        <div>Для этого города пока нет готовых маршрутов.</div>
+      </div>
+    )
+  }
 
   // 👉 Если маршрут выбран — показываем экран деталей
   if (activeRoute) {
@@ -89,7 +117,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ))}
         </div>
 
-        {/* На будущее — кнопка, чтобы потом «создавать поездку по этому маршруту» */}
         <button
           style={{
             marginTop: 20,
@@ -104,8 +131,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             cursor: 'pointer',
           }}
           onClick={() => {
-            // тут позже можно будет сделать: создать поездку из шаблона
-            // пока просто чуть «оживим» интерфейс
             alert('Скоро: создать поездку по этому маршруту ✈️')
           }}
         >

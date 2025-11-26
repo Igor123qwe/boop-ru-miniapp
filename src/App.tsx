@@ -8,15 +8,16 @@ import { TripsListPage } from './pages/TripsListPage'
 import { TripDetailPage } from './pages/TripDetailPage'
 import { TripCreatePage } from './pages/TripCreatePage'
 import { MyTripsPage } from './pages/MyTripsPage'
-import { PopularRoutesPage } from './pages/PopularRoutesPage' // 🔹 новая страница
+import { PopularRoutesPage } from './pages/PopularRoutesPage'
 
+// все экраны приложения
 type Page =
   | 'onboarding'
   | 'tripsList'
   | 'tripDetail'
   | 'tripCreate'
   | 'myTrips'
-  | 'popularRoutes' // 🔹 добавили
+  | 'popularRoutes'
 
 export const App: React.FC = () => {
   const { tgUser, isReady } = useTelegramWebApp()
@@ -24,16 +25,16 @@ export const App: React.FC = () => {
   const [appUser, setAppUser] = useState<AppUser | null>(null)
   const [currentPage, setCurrentPage] = useState<Page>('onboarding')
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
-  const [selectedCity, setSelectedCity] = useState<string | null>(null) // 🔹 город для популярных маршрутов
+  const [selectedCity, setSelectedCity] = useState<string | null>(null)
   const [trips, setTrips] = useState<TripTemplate[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Инициализация приложения после готовности WebApp
+  // === ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ ===
   useEffect(() => {
     if (!isReady) return
 
-    // Если открыли не из Telegram — просто показываем онбординг
+    // если не из Telegram — оставляем только онбординг
     if (!tgUser) {
       setAppUser(null)
       setTrips([])
@@ -65,6 +66,7 @@ export const App: React.FC = () => {
     void init()
   }, [isReady, tgUser])
 
+  // === ХЕНДЛЕРЫ НАВИГАЦИИ ===
   const goToTripDetail = (tripId: string) => {
     setSelectedTripId(tripId)
     setCurrentPage('tripDetail')
@@ -84,13 +86,13 @@ export const App: React.FC = () => {
     setCurrentPage('myTrips')
   }
 
-  // 🔹 открытие списка популярных маршрутов по городу
+  // открыть список популярных маршрутов по выбранному городу
   const handleOpenPopularRoutes = (city: string) => {
     setSelectedCity(city)
     setCurrentPage('popularRoutes')
   }
 
-  // Пока Telegram WebApp не готов — показываем простой лоадер
+  // === ЛОАДЕР, ПОКА НЕ ГОТОВ TELEGRAM WEBAPP ===
   if (!isReady) {
     return (
       <div
@@ -108,12 +110,14 @@ export const App: React.FC = () => {
     )
   }
 
+  // === ОСНОВНАЯ РАЗМЕТКА ===
   return (
     <Layout
       onGoToTripsList={() => setCurrentPage('tripsList')}
       onGoToMyTrips={handleOpenMyTrips}
       onCreateTrip={handleCreateTripClick}
     >
+      {/* глобальная ошибка */}
       {error && (
         <div
           style={{
@@ -128,27 +132,30 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      {/* начальный лоадер только для списка маршрутов */}
       {isLoading && currentPage === 'tripsList' && trips.length === 0 && (
         <div style={{ padding: 16 }}>Загружаем маршруты…</div>
       )}
 
+      {/* онбординг */}
       {currentPage === 'onboarding' && (
         <OnboardingPage
           tgUser={tgUser}
-          // Можно сразу вести в создание маршрута
-          onContinue={handleCreateTripClick}
+          onContinue={() => setCurrentPage('tripsList')}
         />
       )}
 
+      {/* главный экран со списком поездок и городами */}
       {currentPage === 'tripsList' && (
         <TripsListPage
           trips={trips}
           onOpenTrip={goToTripDetail}
           onCreateTrip={handleCreateTripClick}
-          onOpenPopular={handleOpenPopularRoutes} // 🔹 новый проп
+          onOpenPopular={handleOpenPopularRoutes}
         />
       )}
 
+      {/* популярные маршруты по выбранному городу */}
       {currentPage === 'popularRoutes' && selectedCity && (
         <PopularRoutesPage
           city={selectedCity}
@@ -156,6 +163,7 @@ export const App: React.FC = () => {
         />
       )}
 
+      {/* детальная поездка */}
       {currentPage === 'tripDetail' && selectedTripId && (
         <TripDetailPage
           tripId={selectedTripId}
@@ -164,10 +172,12 @@ export const App: React.FC = () => {
         />
       )}
 
+      {/* создание поездки */}
       {currentPage === 'tripCreate' && appUser && (
         <TripCreatePage author={appUser} onCreated={handleTripCreated} />
       )}
 
+      {/* мои поездки */}
       {currentPage === 'myTrips' && appUser && (
         <MyTripsPage appUser={appUser} />
       )}
