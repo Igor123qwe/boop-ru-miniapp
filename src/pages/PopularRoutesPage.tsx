@@ -1,6 +1,7 @@
 // src/pages/PopularRoutesPage.tsx
 import React, { useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes/index'
+import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
 import './PopularRoutesPage.css'
 
 type Props = {
@@ -20,6 +21,8 @@ const declension = (one: string, few: string, many: string, value: number) => {
 }
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
+  const { webApp } = useTelegramWebApp()
+
   // маршруты для выбранного города из папки src/data/popularRoutes
   const routes = POPULAR_ROUTES[city] ?? []
 
@@ -28,8 +31,22 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
+  const handleOpenMap = (route: PopularRoute) => {
+    if (!route.yandexMapUrl) return
+
+    if (webApp?.openLink) {
+      webApp.openLink(route.yandexMapUrl)
+    } else {
+      window.open(route.yandexMapUrl, '_blank')
+    }
+  }
+
   // === режим просмотра деталей конкретного маршрута ===
   if (activeRoute) {
+    const hasRouteInfo =
+      typeof activeRoute.distanceKm !== 'undefined' ||
+      typeof activeRoute.durationText !== 'undefined'
+
     return (
       <div className="popular-page">
         <button
@@ -42,6 +59,68 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
         <h2 className="page-title">{activeRoute.title}</h2>
         <p className="page-subtitle">{activeRoute.shortDescription}</p>
+
+        {/* 🔹 Карта маршрута */}
+        {activeRoute.yandexMapEmbedUrl && (
+          <div
+            style={{
+              marginBottom: 12,
+              borderRadius: 16,
+              overflow: 'hidden',
+              border: '1px solid #eee',
+              height: 220,
+              background: '#f5f5f5',
+            }}
+          >
+            <iframe
+              src={activeRoute.yandexMapEmbedUrl}
+              style={{ border: 0, width: '100%', height: '100%' }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+        )}
+
+        {/* 🔹 Информация о маршруте (км + время) */}
+        {hasRouteInfo && (
+          <div
+            style={{
+              marginBottom: 12,
+              fontSize: 13,
+              color: '#444',
+              padding: '8px 10px',
+              borderRadius: 12,
+              background: '#f7f7f7',
+            }}
+          >
+            {typeof activeRoute.distanceKm !== 'undefined' && (
+              <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
+            )}
+            {activeRoute.durationText && (
+              <div>В пути: {activeRoute.durationText}</div>
+            )}
+          </div>
+        )}
+
+        {/* 🔹 Кнопка "Открыть в Яндекс.Картах" */}
+        <button
+          type="button"
+          onClick={() => handleOpenMap(activeRoute)}
+          style={{
+            width: '100%',
+            padding: '10px 16px',
+            borderRadius: 999,
+            border: 'none',
+            background: '#000',
+            color: '#fff',
+            fontSize: 14,
+            fontWeight: 500,
+            marginBottom: 16,
+            cursor: 'pointer',
+          }}
+        >
+          Открыть маршрут в Яндекс.Картах
+        </button>
 
         {activeRoute.days.map(day => (
           <div key={day.title} className="route-day">

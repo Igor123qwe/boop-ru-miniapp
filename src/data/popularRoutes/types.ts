@@ -19,6 +19,12 @@ export type PopularRoute = {
   daysCount: number
   shortDescription: string
   days: PopularRouteDay[]
-  // 🔥 ссылка на маршрут в Яндекс.Картах
-  yandexMapUrl: string
+
+  // ссылки для Яндекс.Карт
+  yandexMapUrl: string            // открыть в приложении/отдельной вкладке
+  yandexMapEmbedUrl: string       // встроенная карта (iframe)
+
+  // инфа о маршруте
+  distanceKm?: number             // протяжённость, км
+  durationText?: string           // текст типа "30–40 минут в пути"
 }
