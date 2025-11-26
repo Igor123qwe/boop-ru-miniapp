@@ -41,40 +41,34 @@ type WikiInfoState = {
 const makePointKey = (routeId: string, dayTitle: string, pointTitle: string) =>
   `${routeId}__${dayTitle}__${pointTitle}`
 
-// === загрузка фото из Wikimedia Commons (оригиналы, не миниатюры) ===
+// === ЗАГРУЗКА ФОТО ИЗ WIKIMEDIA COMMONS (через core/v1, берём thumbnail.url как есть) ===
 const fetchWikimediaImages = async (query: string): Promise<string[]> => {
   try {
-    const searchUrl =
-      'https://commons.wikimedia.org/w/api.php?' +
+    const url =
+      'https://api.wikimedia.org/core/v1/commons/search/title?' +
       new URLSearchParams({
-        action: 'query',
-        generator: 'search',
-        gsrlimit: '10',
-        gsrsearch: query,
-        prop: 'imageinfo',
-        iiprop: 'url',
-        format: 'json',
-        origin: '*',
+        q: query,
+        limit: '10',
       })
 
-    const res = await fetch(searchUrl.toString())
-    if (!res.ok) return []
+    const res = await fetch(url.toString())
+    if (!res.ok) {
+      console.warn('Wikimedia API error', res.status)
+      return []
+    }
 
     const data = await res.json()
-    if (!data.query?.pages) return []
 
-    const images: string[] = []
+    if (!data.pages || !Array.isArray(data.pages)) return []
 
-    Object.values(data.query.pages).forEach((page: any) => {
-      const info = page.imageinfo?.[0]
-      if (info?.url) {
-        images.push(info.url)
-      }
-    })
+    // Берём только thumbnail.url — это готовая рабочая ссылка
+    const images: string[] = data.pages
+      .map((p: any) => p.thumbnail?.url as string | undefined)
+      .filter((u: string | undefined): u is string => Boolean(u))
 
     return images
   } catch (e) {
-    console.error('WM ERROR', e)
+    console.error('Wikimedia fetch error', e)
     return []
   }
 }
