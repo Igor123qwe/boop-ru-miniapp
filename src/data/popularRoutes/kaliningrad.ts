@@ -1,21 +1,25 @@
 // src/data/popularRoutes/kaliningrad.ts
 import type { PopularRoute } from './types'
 
-const kaliningrad: PopularRoute[] = [
+export const KALININGRAD_ROUTES: PopularRoute[] = [
   {
     id: 'kaliningrad_day_1',
     city: 'Калининград',
     title: 'Калининград за 1 день',
     daysCount: 1,
     shortDescription: 'Центр города, набережная и немного фортификации.',
+
+    // ссылки для Яндекс.Карт
     yandexMapUrl:
       'https://yandex.ru/maps/?rtext=54.7103,20.5101~54.7037,20.5153~54.7077,20.5084~54.7240,20.4573~54.7408,20.4331&rtt=auto',
     yandexMapEmbedUrl:
       'https://yandex.ru/map-widget/v1/?rtext=54.7103,20.5101~54.7037,20.5153~54.7077,20.5084~54.7240,20.4573~54.7408,20.4331&rtt=auto',
+
+    // инфо о маршруте
     distanceKm: 25,
     durationText: 'Около 30–40 минут чистого пути на машине',
 
-    // 🔹 новые поля
+    // для фильтров
     difficulty: 'easy',
     popularity: 100,
 
@@ -65,4 +69,5 @@ const kaliningrad: PopularRoute[] = [
   }
 ]
 
-export default kaliningrad
+// можно оставить default, чтобы другие места тоже работали
+export default KALININGRAD_ROUTES
