@@ -104,6 +104,8 @@ const fetchWikiExtract = async (
     return null
   }
 }
+
+// базовый URL бекенда
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
@@ -144,6 +146,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   })
 
   const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
+
+  // кэш фоток по точкам: ключ = routeId_pointIndex
+  const [pointPhotosCache, setPointPhotosCache] = useState<Record<string, string[]>>({})
 
   // сброс всего при смене activeRoute
   useEffect(() => {
@@ -205,20 +210,44 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     point: { title: string; time?: string; description?: string; images?: string[] },
     index: number
   ) => {
-    // КЛЮЧЕВОЕ: setActivePoint вызывается синхронно – модалка откроется даже если бэкенд упадёт
+    const cacheKey = `${route.id}_${index}`
+
+    // сразу открываем модалку
     setActivePoint({
       routeId: route.id,
       dayTitle,
       point,
     })
-
     setActiveImageIndex(0)
-    setPointImages([])
 
-    if (Array.isArray(point.images) && point.images.length > 0) {
-      setPointImages(point.images)
+    // локальные картинки из маршрута
+    const baseImages = Array.isArray(point.images) ? point.images : []
+
+    // смотрим в кэш фоток по этой точке
+    const cached = pointPhotosCache[cacheKey] ?? []
+
+    if (cached.length > 0) {
+      const merged = [...baseImages, ...cached]
+      const uniq = Array.from(new Set(merged))
+      setPointImages(uniq.length > 0 ? uniq : [TEST_IMAGE_URL])
+    } else {
+      // пока не знаем про облако — показываем только локальные (или заглушку)
+      setPointImages(baseImages.length > 0 ? baseImages : [TEST_IMAGE_URL])
     }
 
+    // если уже есть в кэше — парсер/бекенд больше не трогаем
+    if (cached.length > 0) {
+      setWikiInfo({
+        loading: true,
+        error: false,
+        extract: null,
+        url: null,
+      })
+      setIsWikiVisible(true)
+      return
+    }
+
+    // ---- запрос к бекенду (только если в кэше пусто) ----
     const params = new URLSearchParams({
       routeId: route.id,
       pointIndex: String(index),
@@ -228,34 +257,51 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const fetchFromBackend = async (attempt: number) => {
       try {
-        const resp = await fetch(`${API_BASE}/api/photos?${params.toString()}`)
+        const url = `${API_BASE}/api/photos?${params.toString()}`
+        console.log('PHOTO API URL =', url)
+
+        const resp = await fetch(url)
+        if (!resp.ok) {
+          console.warn('photos api status:', resp.status)
+          throw new Error('Bad status')
+        }
 
         const data = await resp.json()
+        console.log('photos result:', data)
 
         if (data.status === 'done' && Array.isArray(data.photos) && data.photos.length > 0) {
+          const remotePhotos: string[] = data.photos
+
+          // обновляем кэш
+          setPointPhotosCache(prev => ({
+            ...prev,
+            [cacheKey]: remotePhotos,
+          }))
+
+          // объединяем локальные + удалённые
           setPointImages(prev => {
-            const all = [...prev, ...data.photos]
+            const all = [...prev, ...remotePhotos]
             const uniq = Array.from(new Set(all))
             return uniq.length > 0 ? uniq : [TEST_IMAGE_URL]
           })
         } else if (data.status === 'pending') {
           if (attempt < 3) {
-            setTimeout(() => {
-              fetchFromBackend(attempt + 1)
-            }, 2000)
+            setTimeout(() => fetchFromBackend(attempt + 1), 2000)
           } else {
             setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
           }
         } else {
           setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
         }
-      } catch {
+      } catch (e) {
+        console.error('photos api error', e)
         setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
       }
     }
 
     fetchFromBackend(0)
 
+    // --- Википедия ---
     setWikiInfo({
       loading: true,
       error: false,
@@ -618,11 +664,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                         className="route-point-item"
                         onClick={() => openPointModal(activeRoute, day.title, point, index)}
                       >
-                        {point.time && (
-                          <span className="route-point-time">
-                            {point.time}
-                          </span>
-                        )}
+                        {point.time && <span className="route-point-time">{point.time}</span>}
                         <div className="route-point-main">
                           <div className="route-point-title">{point.title}</div>
                           {point.description && (
@@ -655,7 +697,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               >
                 ✕
               </button>
-              <div className="point-modal-title">{activePoint.point.title}</div>
+            <div className="point-modal-title">{activePoint.point.title}</div>
               {activePoint.point.time && (
                 <div className="point-modal-time">{activePoint.point.time}</div>
               )}
