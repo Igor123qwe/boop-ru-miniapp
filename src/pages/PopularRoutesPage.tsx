@@ -56,6 +56,7 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
       per_page: '5',
       safesearch: 'true',
       orientation: 'horizontal',
+      lang: 'ru',
     })
 
     const url = `https://pixabay.com/api/?${params.toString()}`
@@ -71,7 +72,7 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
 
     // отдаём прямые URL на картинки
     return data.hits
-      .map((h: any) => h.previewURL as string | undefined)
+      .map((h: any) => h.largeImageURL as string | undefined)
       .filter((u): u is string => Boolean(u))
   } catch (e) {
     console.error('Pixabay fetch error', e)
@@ -237,22 +238,32 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setActivePoint(state)
     setActiveImageIndex(0)
 
-    if (point.images && point.images.length > 0) {
-      setPointImages(point.images)
-      return
+    // сразу показываем свои картинки, если есть
+    const baseImages =
+      point.images && point.images.length > 0 ? [...point.images] : []
+    if (baseImages.length > 0) {
+      setPointImages(baseImages)
+    } else {
+      setPointImages([])
     }
 
-    setPointImages([])
-
+    // параллельно тянем картинки с Pixabay
     const titleForQuery = point.wikiTitle || point.title
     const q = `${route.city || cityTitle} ${titleForQuery}`
 
     const imgs = await loadPixabayImages(q)
 
     if (imgs.length > 0) {
-      setPointImages(imgs)
+      // добавляем Pixabay-картинки, убирая дубли
+      setPointImages(prev => {
+        const set = new Set(prev)
+        imgs.forEach(u => set.add(u))
+        const arr = Array.from(set)
+        return arr.length > 0 ? arr : [TEST_IMAGE_URL]
+      })
     } else {
-      setPointImages([TEST_IMAGE_URL])
+      // если вообще ничего нет — ставим заглушку
+      setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
     }
   }
 
@@ -371,18 +382,23 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     if (images.length > 0) {
       setRouteImages(images)
-      return
+    } else {
+      setRouteImages([])
     }
 
-    setRouteImages([])
-
+    // независимо от наличия локальных, тянем ещё и Pixabay
     const q = `${route.city || cityTitle} ${route.title}`
     const remoteImgs = await loadPixabayImages(q)
 
     if (remoteImgs.length > 0) {
-      setRouteImages(remoteImgs)
+      setRouteImages(prev => {
+        const set = new Set(prev)
+        remoteImgs.forEach(u => set.add(u))
+        const arr = Array.from(set)
+        return arr.length > 0 ? arr : [TEST_IMAGE_URL]
+      })
     } else {
-      setRouteImages([TEST_IMAGE_URL])
+      setRouteImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
     }
   }
 
