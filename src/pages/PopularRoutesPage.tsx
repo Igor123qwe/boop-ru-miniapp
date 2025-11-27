@@ -37,124 +37,8 @@ type WikiInfoState = {
   url: string | null
 }
 
-// локальная заглушка
+// локальная заглушка, если ничего нет
 const TEST_IMAGE_URL = '/images/placeholder.jpg'
-
-// ключ Pixabay
-const PIXABAY_API_KEY = '12092649-81b01f27ff917e1832098ab3e'
-
-// ===== ВСПОМОГАТЕЛЬНЫЕ ХЕЛПЕРЫ ДЛЯ ЗАПРОСОВ В PIXABAY =====
-
-const transliterateRuToEn = (str: string): string => {
-  const map: Record<string, string> = {
-    а: 'a',
-    б: 'b',
-    в: 'v',
-    г: 'g',
-    д: 'd',
-    е: 'e',
-    ё: 'e',
-    ж: 'zh',
-    з: 'z',
-    и: 'i',
-    й: 'y',
-    к: 'k',
-    л: 'l',
-    м: 'm',
-    н: 'n',
-    о: 'o',
-    п: 'p',
-    р: 'r',
-    с: 's',
-    т: 't',
-    у: 'u',
-    ф: 'f',
-    х: 'h',
-    ц: 'ts',
-    ч: 'ch',
-    ш: 'sh',
-    щ: 'sch',
-    ъ: '',
-    ы: 'y',
-    ь: '',
-    э: 'e',
-    ю: 'yu',
-    я: 'ya',
-  }
-
-  return str
-    .toLowerCase()
-    .split('')
-    .map(ch => map[ch] ?? ch)
-    .join('')
-}
-
-const getCityForPixabay = (cityTitle: string): string => {
-  if (/калининград/i.test(cityTitle)) return 'Kaliningrad Russia'
-  if (/москв/i.test(cityTitle)) return 'Moscow Russia'
-  if (/петербург|санкт[- ]петербург/i.test(cityTitle))
-    return 'Saint Petersburg Russia'
-  // по умолчанию — транслитерация
-  return transliterateRuToEn(cityTitle)
-}
-
-const buildPixabayQueryForRoute = (route: PopularRoute, fallbackCity: string) => {
-  const city = getCityForPixabay(route.city || fallbackCity)
-  const titleEn = transliterateRuToEn(route.title)
-  return `${city} ${titleEn}`
-}
-
-const buildPixabayQueryForPoint = (
-  route: PopularRoute,
-  fallbackCity: string,
-  point: PopularRoute['days'][number]['points'][number]
-) => {
-  const city = getCityForPixabay(route.city || fallbackCity)
-  const pointTitle = transliterateRuToEn(point.wikiTitle || point.title)
-  return `${city} ${pointTitle}`
-}
-
-// ===== Загрузка фото с Pixabay прямо с фронта =====
-const loadPixabayImages = async (query: string): Promise<string[]> => {
-  const trimmed = query.trim()
-  if (!trimmed) return []
-
-  try {
-    const params = new URLSearchParams({
-      key: PIXABAY_API_KEY,
-      q: trimmed,
-      image_type: 'photo',
-      per_page: '5',
-      safesearch: 'true',
-      orientation: 'horizontal',
-      lang: 'en', // теперь ищем по латинице
-    })
-
-    const url = `https://pixabay.com/api/?${params.toString()}`
-    console.log('[Pixabay] query:', trimmed, 'url:', url)
-
-    const res = await fetch(url)
-
-    if (!res.ok) {
-      console.error('Pixabay HTTP error:', res.status)
-      return []
-    }
-
-    const data = await res.json()
-    if (!Array.isArray(data.hits)) {
-      console.warn('Pixabay: unexpected response', data)
-      return []
-    }
-
-    // отдаём прямые URL на картинки
-    return data.hits
-      .map((h: any) => h.largeImageURL as string | undefined)
-      .filter((u): u is string => Boolean(u))
-  } catch (e) {
-    console.error('Pixabay fetch error', e)
-    return []
-  }
-}
 
 // ===== Википедия для описаний =====
 const fetchWikiExtract = async (
@@ -296,7 +180,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  // открыть точку и загрузить для неё фото
+  // открыть точку и загрузить для неё фото (ленивый парсинг через backend)
   const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
@@ -314,7 +198,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setActivePoint(state)
     setActiveImageIndex(0)
 
-    // сразу показываем свои картинки, если есть
+    // 1. Сначала показываем локальные картинки из данных маршрута, если они есть
     const baseImages =
       point.images && point.images.length > 0 ? [...point.images] : []
     if (baseImages.length > 0) {
@@ -323,22 +207,55 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       setPointImages([])
     }
 
-    // параллельно тянем картинки с Pixabay
-    const q = buildPixabayQueryForPoint(route, cityTitle, point)
-    const imgs = await loadPixabayImages(q)
+    // 2. Затем дергаем backend /api/photos — он:
+    //   - если фото уже есть в хранилище → вернет status=done + массив URL
+    //   - если фото ещё нет → запустит парсер и вернет status=pending
+    const params = new URLSearchParams({
+      routeId: route.id,
+      pointIndex: String(index),
+      city: route.city || cityTitle,
+      title: point.title,
+    })
 
-    if (imgs.length > 0) {
-      // добавляем Pixabay-картинки, убирая дубли
-      setPointImages(prev => {
-        const set = new Set(prev)
-        imgs.forEach(u => set.add(u))
-        const arr = Array.from(set)
-        return arr.length > 0 ? arr : [TEST_IMAGE_URL]
-      })
-    } else {
-      // если вообще ничего нет — ставим заглушку
-      setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
+    const fetchFromBackend = async (attempt: number) => {
+      try {
+        const resp = await fetch(`/api/photos?${params.toString()}`)
+        const data = await resp.json()
+
+        if (data.status === 'done' && Array.isArray(data.photos) && data.photos.length > 0) {
+          // объединяем локальные фото и с бэкенда (убираем дубли)
+          setPointImages(prev => {
+            const all = [...prev, ...data.photos]
+            const uniq = Array.from(new Set(all))
+            return uniq.length > 0 ? uniq : [TEST_IMAGE_URL]
+          })
+        } else if (data.status === 'pending') {
+          // парсинг ещё идёт — пробуем ещё раз через небольшую паузу
+          if (attempt < 3) {
+            setTimeout(() => {
+              fetchFromBackend(attempt + 1)
+            }, 1500)
+          } else {
+            // после нескольких попыток, если так и нет фото
+            setPointImages(prev =>
+              prev.length > 0 ? prev : [TEST_IMAGE_URL]
+            )
+          }
+        } else {
+          // неожиданный ответ
+          setPointImages(prev =>
+            prev.length > 0 ? prev : [TEST_IMAGE_URL]
+          )
+        }
+      } catch (e) {
+        console.error('Ошибка загрузки фото точки', e)
+        setPointImages(prev =>
+          prev.length > 0 ? prev : [TEST_IMAGE_URL]
+        )
+      }
     }
+
+    fetchFromBackend(0)
   }
 
   const closePointModal = () => {
@@ -435,7 +352,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  // выбор маршрута — грузим картинки для верхнего блока
+  // выбор маршрута — формируем картинки для верхнего блока из локальных данных
   const handleSelectRoute = async (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
@@ -454,26 +371,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       })
     })
 
-    if (images.length > 0) {
-      setRouteImages(images)
-    } else {
-      setRouteImages([])
-    }
-
-    // независимо от наличия локальных, тянем ещё и Pixabay
-    const q = buildPixabayQueryForRoute(route, cityTitle)
-    const remoteImgs = await loadPixabayImages(q)
-
-    if (remoteImgs.length > 0) {
-      setRouteImages(prev => {
-        const set = new Set(prev)
-        remoteImgs.forEach(u => set.add(u))
-        const arr = Array.from(set)
-        return arr.length > 0 ? arr : [TEST_IMAGE_URL]
-      })
-    } else {
-      setRouteImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
-    }
+    setRouteImages(images)
   }
 
   // === экран конкретного маршрута ===
