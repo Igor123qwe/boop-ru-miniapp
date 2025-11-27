@@ -69,7 +69,7 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
     const data = await res.json()
     if (!Array.isArray(data.hits)) return []
 
-    // просто отдаём прямые URL на картинки
+    // отдаём прямые URL на картинки
     return data.hits
       .map((h: any) => h.previewURL as string | undefined)
       .filter((u): u is string => Boolean(u))
@@ -426,6 +426,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               src={mainImages[mainImageIndex % mainImagesCount]}
               alt={activeRoute.title}
               className="route-main-carousel-image"
+              onError={e => {
+                e.currentTarget.src = TEST_IMAGE_URL
+              }}
             />
             {mainImagesCount > 1 && (
               <button
@@ -548,6 +551,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                     src={pointImages[activeImageIndex % pointImages.length]}
                     alt={activePoint.point.title}
                     className="route-point-carousel-image"
+                    onError={e => {
+                      e.currentTarget.src = TEST_IMAGE_URL
+                    }}
                   />
                   {pointImages.length > 1 && (
                     <button
