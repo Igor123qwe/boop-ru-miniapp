@@ -1,4 +1,5 @@
 // src/pages/PopularRoutesPage.tsx
+console.log("🔥 PopularRoutesPage MOUNTED", city, Object.keys(POPULAR_ROUTES));
 import React, { useEffect, useMemo, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
