@@ -37,13 +37,13 @@ type WikiInfoState = {
   url: string | null
 }
 
-// локальная заглушка (лежит в public/images/placeholder.jpg)
+// локальная заглушка
 const TEST_IMAGE_URL = '/images/placeholder.jpg'
 
-// твой ключ Pixabay
+// ключ Pixabay
 const PIXABAY_API_KEY = '12092649-81b01f27ff917e1832098ab3e'
 
-// ===== Загрузка фото с Pixabay (ЧИСТО ФРОНТ) =====
+// ===== Загрузка фото с Pixabay прямо с фронта =====
 const loadPixabayImages = async (query: string): Promise<string[]> => {
   const trimmed = query.trim()
   if (!trimmed) return []
@@ -69,7 +69,7 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
     const data = await res.json()
     if (!Array.isArray(data.hits)) return []
 
-    // Берём previewURL (cdn.pixabay.com/photo/...)
+    // просто отдаём прямые URL на картинки
     return data.hits
       .map((h: any) => h.previewURL as string | undefined)
       .filter((u): u is string => Boolean(u))
@@ -79,7 +79,7 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
   }
 }
 
-// ===== Википедия для текста =====
+// ===== Википедия для описаний =====
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -135,16 +135,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
   const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
 
-  // слайдер фото маршрута
   const [mainImageIndex, setMainImageIndex] = useState<number>(0)
   const [routeImages, setRouteImages] = useState<string[]>([])
 
-  // модалка точки
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
   const [pointImages, setPointImages] = useState<string[]>([])
 
-  // текст из Википедии
   const [wikiInfo, setWikiInfo] = useState<WikiInfoState>({
     loading: false,
     error: false,
@@ -222,7 +219,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  // открыть точку
+  // открыть точку и загрузить для неё фото
   const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
@@ -240,13 +237,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setActivePoint(state)
     setActiveImageIndex(0)
 
-    // если у точки есть локальные картинки – используем их
     if (point.images && point.images.length > 0) {
       setPointImages(point.images)
       return
     }
 
-    // иначе очищаем и грузим с Pixabay
     setPointImages([])
 
     const titleForQuery = point.wikiTitle || point.title
@@ -299,7 +294,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
-  // текст из вики
+  // Википедия
   useEffect(() => {
     if (!activePoint) return
 
@@ -355,19 +350,17 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  // выбор маршрута – собираем картинки для верхнего слайдера
+  // выбор маршрута — грузим картинки для верхнего блока
   const handleSelectRoute = async (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
 
     const images: string[] = []
 
-    // 1) coverImage, если есть
     if (route.coverImage) {
       images.push(route.coverImage)
     }
 
-    // 2) первые картинки из точек
     route.days.forEach(day => {
       day.points.forEach(point => {
         if (point.images && point.images.length > 0) {
@@ -381,7 +374,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // 3) если локальных нет – пробуем Pixabay по названию маршрута
     setRouteImages([])
 
     const q = `${route.city || cityTitle} ${route.title}`
