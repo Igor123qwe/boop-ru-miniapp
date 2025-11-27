@@ -36,12 +36,12 @@ export const App: React.FC = () => {
     if (!isReady) return
 
     // если не из Telegram — оставляем только онбординг
-    if (!tgUser) {
-      setAppUser(null)
-      setTrips([])
-      setCurrentPage('onboarding')
-      return
-    }
+    f (!tgUser) {
+  console.log("DEMO MODE: Webapp user not found, running standalone.");
+  setAppUser(null)
+  setTrips([])  
+  setCurrentPage('tripsList')  // ⬅️ САМЫЙ ВАЖНЫЙ МОМЕНТ
+  return
 
     const init = async () => {
       try {
