@@ -40,6 +40,8 @@ const declension = (one: string, few: string, many: string, value: number) => {
 
 type SortMode = 'popularity' | 'days' | 'difficulty'
 type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
+// новый режим отображения готовых маршрутов
+type ReadyMode = 'none' | 'all' | 'filtered'
 
 type ActivePointState = {
   routeId: string
@@ -150,6 +152,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   // кэш фоток по точкам: ключ = routeId_pointIndex
   const [pointPhotosCache, setPointPhotosCache] = useState<Record<string, string[]>>({})
 
+  // новый режим: пока ничего не выбрано / показать все / подбор
+  const [readyMode, setReadyMode] = useState<ReadyMode>('none')
+  const [readyDialogOpen, setReadyDialogOpen] = useState(false)
+
+  // чекбоксы "добавить рестораны / кафе" — пока больше как анкета
+  const [withRestaurants, setWithRestaurants] = useState(false)
+  const [withCafes, setWithCafes] = useState(false)
+
   // сброс всего при смене activeRoute
   useEffect(() => {
     if (!activeRoute) {
@@ -177,13 +187,31 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     webApp.expand()
   }, [webApp])
 
+  // маршруты, которые реально показываем, в зависимости от режима
   const visibleRoutes = useMemo(() => {
+    if (readyMode === 'none') return []
+
     let result = [...routes]
+
+    if (readyMode === 'all') {
+      // просто все маршруты, сортировка по популярности
+      result.sort((a, b) => {
+        const pa = a.popularity ?? 0
+        const pb = b.popularity ?? 0
+        return pb - pa
+      })
+      return result
+    }
+
+    // режим "подбор" — применяем фильтры
     result = result.filter(r => r.daysCount <= maxDaysFilter)
 
     if (difficultyFilter !== 'all') {
       result = result.filter(r => (r.difficulty ?? 'easy') === difficultyFilter)
     }
+
+    // TODO: withRestaurants / withCafes можно будет использовать,
+    // когда в маршрутах появятся соответствующие поля/теги
 
     result.sort((a, b) => {
       if (sortMode === 'days') {
@@ -202,7 +230,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
 
     return result
-  }, [routes, sortMode, difficultyFilter, maxDaysFilter])
+  }, [routes, sortMode, difficultyFilter, maxDaysFilter, readyMode])
 
   const openPointModal = async (
     route: PopularRoute,
@@ -453,6 +481,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }, [activePoint])
 
   const handleSelectRoute = (route: PopularRoute) => {
+    // если ещё не выбран режим готовых маршрутов — делаем "Показать все"
+    if (readyMode === 'none') {
+      setReadyMode('all')
+    }
+
     setActiveRoute(route)
     setMainImageIndex(0)
 
@@ -489,6 +522,26 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setIsWikiVisible(false)
   }
 
+  const openReadyDialog = () => {
+    setReadyDialogOpen(true)
+  }
+
+  const handleReadyShowAll = () => {
+    setReadyMode('all')
+    setReadyDialogOpen(false)
+  }
+
+  const handleReadyFiltered = () => {
+    // сбрасываем фильтры в дефолт и включаем режим "подбор"
+    setDifficultyFilter('all')
+    setMaxDaysFilter(maxDaysAvailable)
+    setWithRestaurants(false)
+    setWithCafes(false)
+    setSortMode('popularity')
+    setReadyMode('filtered')
+    setReadyDialogOpen(false)
+  }
+
   return (
     <div className="popular-routes-page">
       <div className="pr-header">
@@ -496,103 +549,180 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ← Назад
         </button>
         <div className="pr-header-main">
-          <h2>Готовые маршруты по городу</h2>
+          <h2>Маршруты по городу</h2>
           <div className="pr-header-city">{cityTitle}</div>
         </div>
       </div>
 
-      <div className="pr-filters">
-        <div className="pr-filter-section">
-          <span className="pr-filter-label">Сложность:</span>
-          <div className="pr-segmented">
-            <button
-              type="button"
-              className={difficultyFilter === 'all' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setDifficultyFilter('all')}
-            >
-              Любая
-            </button>
-            <button
-              type="button"
-              className={difficultyFilter === 'easy' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setDifficultyFilter('easy')}
-            >
-              Лёгкие
-            </button>
-            <button
-              type="button"
-              className={difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setDifficultyFilter('medium')}
-            >
-              Средние
-            </button>
-            <button
-              type="button"
-              className={difficultyFilter === 'hard' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setDifficultyFilter('hard')}
-            >
-              Сложные
-            </button>
-          </div>
-        </div>
-
-        <div className="pr-filter-section">
-          <span className="pr-filter-label">Максимум дней:</span>
-          <div className="pr-range-row">
-            <input
-              type="range"
-              min={1}
-              max={maxDaysAvailable}
-              step={1}
-              value={maxDaysFilter}
-              onChange={e => setMaxDaysFilter(Number(e.target.value))}
-            />
-            <span className="pr-range-value">
-              до {maxDaysFilter} {declension('дня', 'дней', 'дней', maxDaysFilter)}
-            </span>
-          </div>
-        </div>
-
-        <div className="pr-filter-section">
-          <span className="pr-filter-label">Сортировать по:</span>
-          <div className="pr-segmented">
-            <button
-              type="button"
-              className={sortMode === 'popularity' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setSortMode('popularity')}
-            >
-              Популярности
-            </button>
-            <button
-              type="button"
-              className={sortMode === 'days' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setSortMode('days')}
-            >
-              Количеству дней
-            </button>
-            <button
-              type="button"
-              className={sortMode === 'difficulty' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-              onClick={() => setSortMode('difficulty')}
-            >
-              Сложности
-            </button>
-          </div>
-        </div>
+      {/* Две главные кнопки */}
+      <div className="pr-top-actions">
+        <button
+          type="button"
+          className="pr-top-btn primary"
+          onClick={handleCreateCustomRoute}
+        >
+          Создать свой маршрут
+        </button>
+        <button
+          type="button"
+          className="pr-top-btn secondary"
+          onClick={openReadyDialog}
+        >
+          Готовые маршруты
+        </button>
       </div>
 
-      <div className="pr-actions-row">
-        <button type="button" className="pr-create-route-btn" onClick={handleCreateCustomRoute}>
-          + Создать свой маршрут
-        </button>
-        {activeRoute && (
+      {/* Диалог выбора: показать все / подобрать */}
+      {readyDialogOpen && (
+        <div className="ready-dialog-backdrop">
+          <div
+            className="ready-dialog"
+            onClick={e => {
+              e.stopPropagation()
+            }}
+          >
+            <h3>Готовые маршруты по городу</h3>
+            <p>Как удобнее показать маршруты?</p>
+            <div className="ready-dialog-buttons">
+              <button type="button" onClick={handleReadyShowAll}>
+                Показать все
+              </button>
+              <button type="button" onClick={handleReadyFiltered}>
+                Подобрать маршрут
+              </button>
+            </div>
+
+            <p className="ready-dialog-hint">
+              При подборе можно будет указать сложность, количество дней и добавить рестораны и кафе.
+            </p>
+
+            <button
+              type="button"
+              className="ready-dialog-close"
+              onClick={() => setReadyDialogOpen(false)}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Анкета / фильтры показываем только в режиме "подбор" */}
+      {readyMode === 'filtered' && (
+        <div className="pr-filters">
+          <div className="pr-filter-section">
+            <span className="pr-filter-label">Сложность:</span>
+            <div className="pr-segmented">
+              <button
+                type="button"
+                className={difficultyFilter === 'all' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setDifficultyFilter('all')}
+              >
+                Любая
+              </button>
+              <button
+                type="button"
+                className={difficultyFilter === 'easy' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setDifficultyFilter('easy')}
+              >
+                Лёгкие
+              </button>
+              <button
+                type="button"
+                className={difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setDifficultyFilter('medium')}
+              >
+                Средние
+              </button>
+              <button
+                type="button"
+                className={difficultyFilter === 'hard' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setDifficultyFilter('hard')}
+              >
+                Сложные
+              </button>
+            </div>
+          </div>
+
+          <div className="pr-filter-section">
+            <span className="pr-filter-label">Максимум дней:</span>
+            <div className="pr-range-row">
+              <input
+                type="range"
+                min={1}
+                max={maxDaysAvailable}
+                step={1}
+                value={maxDaysFilter}
+                onChange={e => setMaxDaysFilter(Number(e.target.value))}
+              />
+              <span className="pr-range-value">
+                до {maxDaysFilter} {declension('дня', 'дней', 'дней', maxDaysFilter)}
+              </span>
+            </div>
+          </div>
+
+          <div className="pr-filter-section">
+            <span className="pr-filter-label">Что добавить:</span>
+            <div className="pr-checkboxes-row">
+              <label className="pr-checkbox">
+                <input
+                  type="checkbox"
+                  checked={withRestaurants}
+                  onChange={e => setWithRestaurants(e.target.checked)}
+                />
+                Рестораны
+              </label>
+              <label className="pr-checkbox">
+                <input
+                  type="checkbox"
+                  checked={withCafes}
+                  onChange={e => setWithCafes(e.target.checked)}
+                />
+                Кафе и кофейни
+              </label>
+            </div>
+          </div>
+
+          <div className="pr-filter-section">
+            <span className="pr-filter-label">Сортировать по:</span>
+            <div className="pr-segmented">
+              <button
+                type="button"
+                className={sortMode === 'popularity' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setSortMode('popularity')}
+              >
+                Популярности
+              </button>
+              <button
+                type="button"
+                className={sortMode === 'days' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setSortMode('days')}
+              >
+                Количеству дней
+              </button>
+              <button
+                type="button"
+                className={sortMode === 'difficulty' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+                onClick={() => setSortMode('difficulty')}
+              >
+                Сложности
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Кнопка "Поделиться маршрутом" */}
+      {readyMode !== 'none' && activeRoute && (
+        <div className="pr-actions-row">
           <button type="button" className="pr-share-route-btn" onClick={handleShareRoute}>
             Поделиться этим маршрутом
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {activeRoute && (
+      {/* Детальная карточка маршрута */}
+      {readyMode !== 'none' && activeRoute && (
         <div className="route-detail-card">
           <div className="route-detail-header">
             <h3>{activeRoute.title}</h3>
@@ -681,7 +811,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       )}
 
-      {activePoint && (
+      {/* Модалка точки маршрута */}
+      {readyMode !== 'none' && activePoint && (
         <div className="point-modal-backdrop" onClick={handleClosePointModal}>
           <div
             className="point-modal"
@@ -697,7 +828,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               >
                 ✕
               </button>
-            <div className="point-modal-title">{activePoint.point.title}</div>
+              <div className="point-modal-title">{activePoint.point.title}</div>
               {activePoint.point.time && (
                 <div className="point-modal-time">{activePoint.point.time}</div>
               )}
@@ -750,7 +881,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 {wikiInfo.loading && <div>Загружаем описание…</div>}
                 {wikiInfo.error && (
                   <div>
-                    Не удалось загрузить описание с Википедии. Попробуйте позже или загляните на карту.
+                    Не удалось загрузить описание с Википедии. Попробуйте позже или загляните на
+                    карту.
                   </div>
                 )}
                 {!wikiInfo.loading && !wikiInfo.error && wikiInfo.extract && (
@@ -774,26 +906,29 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       )}
 
-      <div className="routes-list">
-        {visibleRoutes.map(route => (
-          <button
-            type="button"
-            key={route.id}
-            className={
-              activeRoute?.id === route.id ? 'route-card route-card-active' : 'route-card'
-            }
-            onClick={() => handleSelectRoute(route)}
-          >
-            <div className="route-card-header">
-              <div className="route-card-title">{route.title}</div>
-              <div className="route-days">
-                {route.daysCount} {declension('день', 'дня', 'дней', route.daysCount)}
+      {/* Список готовых маршрутов */}
+      {readyMode !== 'none' && (
+        <div className="routes-list">
+          {visibleRoutes.map(route => (
+            <button
+              type="button"
+              key={route.id}
+              className={
+                activeRoute?.id === route.id ? 'route-card route-card-active' : 'route-card'
+              }
+              onClick={() => handleSelectRoute(route)}
+            >
+              <div className="route-card-header">
+                <div className="route-card-title">{route.title}</div>
+                <div className="route-days">
+                  {route.daysCount} {declension('день', 'дня', 'дней', route.daysCount)}
+                </div>
               </div>
-            </div>
-            <div className="route-desc">{route.shortDescription}</div>
-          </button>
-        ))}
-      </div>
+              <div className="route-desc">{route.shortDescription}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
