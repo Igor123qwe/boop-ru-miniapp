@@ -43,6 +43,77 @@ const TEST_IMAGE_URL = '/images/placeholder.jpg'
 // ключ Pixabay
 const PIXABAY_API_KEY = '12092649-81b01f27ff917e1832098ab3e'
 
+// ===== ВСПОМОГАТЕЛЬНЫЕ ХЕЛПЕРЫ ДЛЯ ЗАПРОСОВ В PIXABAY =====
+
+const transliterateRuToEn = (str: string): string => {
+  const map: Record<string, string> = {
+    а: 'a',
+    б: 'b',
+    в: 'v',
+    г: 'g',
+    д: 'd',
+    е: 'e',
+    ё: 'e',
+    ж: 'zh',
+    з: 'z',
+    и: 'i',
+    й: 'y',
+    к: 'k',
+    л: 'l',
+    м: 'm',
+    н: 'n',
+    о: 'o',
+    п: 'p',
+    р: 'r',
+    с: 's',
+    т: 't',
+    у: 'u',
+    ф: 'f',
+    х: 'h',
+    ц: 'ts',
+    ч: 'ch',
+    ш: 'sh',
+    щ: 'sch',
+    ъ: '',
+    ы: 'y',
+    ь: '',
+    э: 'e',
+    ю: 'yu',
+    я: 'ya',
+  }
+
+  return str
+    .toLowerCase()
+    .split('')
+    .map(ch => map[ch] ?? ch)
+    .join('')
+}
+
+const getCityForPixabay = (cityTitle: string): string => {
+  if (/калининград/i.test(cityTitle)) return 'Kaliningrad Russia'
+  if (/москв/i.test(cityTitle)) return 'Moscow Russia'
+  if (/петербург|санкт[- ]петербург/i.test(cityTitle))
+    return 'Saint Petersburg Russia'
+  // по умолчанию — транслитерация
+  return transliterateRuToEn(cityTitle)
+}
+
+const buildPixabayQueryForRoute = (route: PopularRoute, fallbackCity: string) => {
+  const city = getCityForPixabay(route.city || fallbackCity)
+  const titleEn = transliterateRuToEn(route.title)
+  return `${city} ${titleEn}`
+}
+
+const buildPixabayQueryForPoint = (
+  route: PopularRoute,
+  fallbackCity: string,
+  point: PopularRoute['days'][number]['points'][number]
+) => {
+  const city = getCityForPixabay(route.city || fallbackCity)
+  const pointTitle = transliterateRuToEn(point.wikiTitle || point.title)
+  return `${city} ${pointTitle}`
+}
+
 // ===== Загрузка фото с Pixabay прямо с фронта =====
 const loadPixabayImages = async (query: string): Promise<string[]> => {
   const trimmed = query.trim()
@@ -56,10 +127,12 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
       per_page: '5',
       safesearch: 'true',
       orientation: 'horizontal',
-      lang: 'ru',
+      lang: 'en', // теперь ищем по латинице
     })
 
     const url = `https://pixabay.com/api/?${params.toString()}`
+    console.log('[Pixabay] query:', trimmed, 'url:', url)
+
     const res = await fetch(url)
 
     if (!res.ok) {
@@ -68,7 +141,10 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
     }
 
     const data = await res.json()
-    if (!Array.isArray(data.hits)) return []
+    if (!Array.isArray(data.hits)) {
+      console.warn('Pixabay: unexpected response', data)
+      return []
+    }
 
     // отдаём прямые URL на картинки
     return data.hits
@@ -248,9 +324,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
 
     // параллельно тянем картинки с Pixabay
-    const titleForQuery = point.wikiTitle || point.title
-    const q = `${route.city || cityTitle} ${titleForQuery}`
-
+    const q = buildPixabayQueryForPoint(route, cityTitle, point)
     const imgs = await loadPixabayImages(q)
 
     if (imgs.length > 0) {
@@ -387,7 +461,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
 
     // независимо от наличия локальных, тянем ещё и Pixabay
-    const q = `${route.city || cityTitle} ${route.title}`
+    const q = buildPixabayQueryForRoute(route, cityTitle)
     const remoteImgs = await loadPixabayImages(q)
 
     if (remoteImgs.length > 0) {
