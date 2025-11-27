@@ -31,17 +31,17 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // === ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ ===
+  // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
   useEffect(() => {
     if (!isReady) return
 
-    // если не из Telegram — оставляем только онбординг
-    f (!tgUser) {
-  console.log("DEMO MODE: Webapp user not found, running standalone.");
-  setAppUser(null)
-  setTrips([])  
-  setCurrentPage('tripsList')  // ⬅️ САМЫЙ ВАЖНЫЙ МОМЕНТ
-  return
+    // если приложение открыто НЕ из Telegram — оставляем только онбординг
+    if (!tgUser) {
+      setAppUser(null)
+      setTrips([])
+      setCurrentPage('onboarding')
+      return
+    }
 
     const init = async () => {
       try {
@@ -54,7 +54,7 @@ export const App: React.FC = () => {
         const list = await api.listTrips()
         setTrips(list)
 
-        // после загрузки из Telegram сразу показываем список
+        // после загрузки данных показываем экран со списком маршрутов
         setCurrentPage('tripsList')
       } catch (e) {
         console.error(e)
@@ -68,13 +68,7 @@ export const App: React.FC = () => {
     void init()
   }, [isReady, tgUser])
 
-  // === ХЕНДЛЕРЫ НАВИГАЦИИ ===
-  const goToTripsList = () => {
-    setCurrentPage('tripsList')
-    setSelectedTripId(null)
-    setSelectedCity(null)
-  }
-
+  // ===== ХЕНДЛЕРЫ НАВИГАЦИИ =====
   const goToTripDetail = (tripId: string) => {
     setSelectedTripId(tripId)
     setCurrentPage('tripDetail')
@@ -95,12 +89,12 @@ export const App: React.FC = () => {
   }
 
   // открыть список популярных маршрутов по выбранному городу
-  const handleOpenPopularRoutes = (citySlug: string) => {
-    setSelectedCity(citySlug)           // 'kaliningrad', 'moscow', 'spb', ...
+  const handleOpenPopularRoutes = (city: string) => {
+    setSelectedCity(city)
     setCurrentPage('popularRoutes')
   }
 
-  // === ЛОАДЕР, ПОКА НЕ ГОТОВ TELEGRAM WEBAPP ===
+  // пока Telegram WebApp не готов — просто сплэш
   if (!isReady) {
     return (
       <div
@@ -118,10 +112,10 @@ export const App: React.FC = () => {
     )
   }
 
-  // === ОСНОВНАЯ РАЗМЕТКА ===
+  // ===== ОСНОВНАЯ РАЗМЕТКА =====
   return (
     <Layout
-      onGoToTripsList={goToTripsList}
+      onGoToTripsList={() => setCurrentPage('tripsList')}
       onGoToMyTrips={handleOpenMyTrips}
       onCreateTrip={handleCreateTripClick}
     >
@@ -140,7 +134,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* начальный лоадер только для списка маршрутов */}
+      {/* лоадер только для списка маршрутов */}
       {isLoading && currentPage === 'tripsList' && trips.length === 0 && (
         <div style={{ padding: 16 }}>Загружаем маршруты…</div>
       )}
@@ -163,11 +157,11 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* популярные маршруты по выбранному городу */}
+      {/* популярные маршруты по конкретному городу */}
       {currentPage === 'popularRoutes' && selectedCity && (
         <PopularRoutesPage
           city={selectedCity}
-          onBack={goToTripsList}
+          onBack={() => setCurrentPage('tripsList')}
         />
       )}
 
