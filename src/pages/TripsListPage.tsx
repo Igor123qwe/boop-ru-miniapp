@@ -1,3 +1,4 @@
+// src/pages/TripsListPage.tsx
 import React from 'react'
 import type { TripTemplate } from '../types'
 import './TripsListPage.css'
@@ -6,10 +7,9 @@ type Props = {
   trips: TripTemplate[]
   onOpenTrip: (tripId: string) => void
   onCreateTrip: () => void
-  onOpenPopular: (city: string) => void // сюда прилетает id города (slug)
+  onOpenPopular: (city: string) => void // сюда прилетает slug
 }
 
-// Можно потом вынести в отдельный файл data
 const POPULAR_CITIES = [
   { id: 'kaliningrad', name: 'Калининград', image: '/images/kaliningrad.jpg' },
   { id: 'moscow', name: 'Москва', image: '/images/moscow.jpg' },
@@ -43,16 +43,16 @@ export const TripsListPage: React.FC<Props> = ({
       <div className="section-title">Популярные направления</div>
       <div className="cards-grid">
         {POPULAR_CITIES.map(city => (
-  <button
-    key={city.id}
-    type="button"
-    className="city-card"
-    onClick={() => onOpenPopular(city.id)}  // ✅ вместо city.id
-  >
-    {city.image && <img src={city.image} alt={city.name} />}
-    <span className="city-name">{city.name}</span>
-  </button>
-))}
+          <button
+            key={city.id}
+            type="button"
+            className="city-card"
+            onClick={() => onOpenPopular(city.id)}  // ✅ slug, НЕ name
+          >
+            {city.image && <img src={city.image} alt={city.name} />}
+            <span className="city-name">{city.name}</span>
+          </button>
+        ))}
       </div>
 
       {/* Мои маршруты */}
