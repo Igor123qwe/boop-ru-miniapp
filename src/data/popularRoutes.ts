@@ -15,10 +15,25 @@ import { KAZAN_ROUTES } from './popularRoutes/kazan'
 export type { PopularRoute, PopularRoutesByCity }
 
 // общая мапа "город → маршруты"
+// Делаем и slug-и, и русские названия, чтобы что бы ни пришло в `city` — маршруты нашлись.
 export const POPULAR_ROUTES: PopularRoutesByCity = {
+  // Калининград
+  kaliningrad: KALININGRAD_ROUTES,
   Калининград: KALININGRAD_ROUTES,
+
+  // Москва
+  moscow: MOSCOW_ROUTES,
   Москва: MOSCOW_ROUTES,
+
+  // Санкт-Петербург
+  spb: SPB_ROUTES,
   'Санкт-Петербург': SPB_ROUTES,
+
+  // Сочи
+  sochi: SOCHI_ROUTES,
   Сочи: SOCHI_ROUTES,
+
+  // Казань
+  kazan: KAZAN_ROUTES,
   Казань: KAZAN_ROUTES,
 }
