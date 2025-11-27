@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo \"No build step for backend\"",
+  "dev": "vite",
+  "build": "vite build",
+  "preview": "vite preview"
+}
     "start": "node server.js"
   },
   "engines": {
