@@ -104,6 +104,9 @@ const fetchWikiExtract = async (
     return null
   }
 }
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://progid-backend.vercel.app'
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
@@ -225,7 +228,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const fetchFromBackend = async (attempt: number) => {
       try {
-        const resp = await fetch(`/api/photos?${params.toString()}`)
+        const resp = await fetch(`${API_BASE}/api/photos?${params.toString()}`)
+
         const data = await resp.json()
 
         if (data.status === 'done' && Array.isArray(data.photos) && data.photos.length > 0) {
