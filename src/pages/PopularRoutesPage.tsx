@@ -37,13 +37,13 @@ type WikiInfoState = {
   url: string | null
 }
 
-// 🔴 локальная заглушка (создай public/images/placeholder.jpg)
+// локальная заглушка (лежит в public/images/placeholder.jpg)
 const TEST_IMAGE_URL = '/images/placeholder.jpg'
 
-// 🔑 твой ключ Pixabay
+// твой ключ Pixabay
 const PIXABAY_API_KEY = '12092649-81b01f27ff917e1832098ab3e'
 
-// ===== Загрузка фото с Pixabay и оборачивание их в /api/image-proxy =====
+// ===== Загрузка фото с Pixabay (ЧИСТО ФРОНТ) =====
 const loadPixabayImages = async (query: string): Promise<string[]> => {
   const trimmed = query.trim()
   if (!trimmed) return []
@@ -69,12 +69,10 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
     const data = await res.json()
     if (!Array.isArray(data.hits)) return []
 
-    const rawUrls: string[] = data.hits
-      .map((h: any) => h.webformatURL as string | undefined)
+    // Берём previewURL (cdn.pixabay.com/photo/...)
+    return data.hits
+      .map((h: any) => h.previewURL as string | undefined)
       .filter((u): u is string => Boolean(u))
-
-    // 👉 тут ключевой момент: возвращаем уже наши /api image-proxy URL
-    return rawUrls.map(u => `/api/image-proxy?src=${encodeURIComponent(u)}`)
   } catch (e) {
     console.error('Pixabay fetch error', e)
     return []
