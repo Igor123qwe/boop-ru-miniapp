@@ -1,3 +1,4 @@
+// src/pages/PopularRoutesPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
@@ -110,7 +111,7 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
 
-// Тип "достопримечательность" в списке
+// Тип "достопримечательность" в общем списке
 type PlaceItem = {
   id: string
   route: PopularRoute
@@ -198,7 +199,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     webApp.expand()
   }, [webApp])
 
-  // маршруты с учётом фильтров (как раньше)
+  // маршруты с учётом фильтров
   const visibleRoutes = useMemo(() => {
     let result = [...routes]
     result = result.filter(r => r.daysCount <= maxDaysFilter)
@@ -226,7 +227,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  // ⚡ НОВОЕ: список всех достопримечательностей края (по отфильтрованным маршрутам)
+  // ⚡ НОВОЕ: общий список всех достопримечательностей (по точкам маршрутов)
   const visiblePlaces = useMemo<PlaceItem[]>(() => {
     const list: PlaceItem[] = []
     const usedTitles = new Set<string>()
@@ -238,7 +239,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           const keyTitle = (point.title || '').toLowerCase().trim()
           if (!keyTitle) return
 
-          // если не хотим дубли по заголовку — фильтруем
+          // без дублей по названию
           if (usedTitles.has(keyTitle)) return
           usedTitles.add(keyTitle)
 
@@ -264,7 +265,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   ) => {
     const cacheKey = `${route.id}_${index}`
 
-    // запоминаем маршрут, чтобы можно было, например, отправить в бота
     setActiveRoute(route)
 
     // сразу открываем модалку
@@ -286,11 +286,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       const uniq = Array.from(new Set(merged))
       setPointImages(uniq.length > 0 ? uniq : [TEST_IMAGE_URL])
     } else {
-      // пока не знаем про облако — показываем только локальные (или заглушку)
       setPointImages(baseImages.length > 0 ? baseImages : [TEST_IMAGE_URL])
     }
 
-    // если уже есть в кэше — парсер/бекенд больше не трогаем
     if (cached.length > 0) {
       setWikiInfo({
         loading: true,
@@ -532,12 +530,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ← Назад
         </button>
         <div className="pr-header-main">
-          <h2>Готовые маршруты по городу</h2>
+          <h2>Маршруты по городу</h2>
           <div className="pr-header-city">{cityTitle}</div>
         </div>
       </div>
 
-      {/* Блок фильтров как на старом скрине */}
+      {/* Фильтры как раньше */}
       <div className="pr-filters">
         <div className="pr-filter-section">
           <span className="pr-filter-label">Сложность:</span>
@@ -558,7 +556,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             </button>
             <button
               type="button"
-              className={difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              className={
+                difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'
+              }
               onClick={() => setDifficultyFilter('medium')}
             >
               Средние
@@ -618,50 +618,51 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       </div>
 
-      {/* Полоска "+ Создать свой маршрут" как была */}
+      {/* Полоска "+ Создать свой маршрут" */}
       <div className="pr-actions-row">
         <button type="button" className="pr-create-route-btn" onClick={handleCreateCustomRoute}>
           + Создать свой маршрут
         </button>
       </div>
 
-      {/* ⚡ НОВЫЙ БЛОК: все достопримечательности края */}
+      {/* ⚡ НОВОЕ: общий список достопримечательностей — в виде таких же карточек, как маршруты */}
       <div className="places-section">
-        <div className="places-title">Достопримечательности города и области</div>
-        <div className="places-subtitle">
-          Нажми на любое место, чтобы посмотреть фотографии и короткое описание.
+        <div className="section-title">Достопримечательности города и области</div>
+        <div className="section-subtitle">
+          Нажми на любую карточку, чтобы открыть фотографии и описание места.
         </div>
 
-        <div className="places-list">
+        <div className="routes-list">
           {visiblePlaces.map(place => (
             <button
               key={place.id}
               type="button"
-              className="place-card"
+              className="route-card"
               onClick={() =>
                 openPointModal(place.route, place.dayTitle, place.point, place.pointIndex)
               }
             >
-              {place.point.time && <div className="place-time">{place.point.time}</div>}
-              <div className="place-main">
-                <div className="place-title">{place.point.title}</div>
-                {place.point.description && (
-                  <div className="place-desc">{place.point.description}</div>
-                )}
-                <div className="place-meta">
+              <div className="route-card-header">
+                <div className="route-card-title">{place.point.title}</div>
+                <div className="route-days">
                   {place.route.title} · {place.dayTitle}
                 </div>
               </div>
+              {place.point.description && (
+                <div className="route-desc">{place.point.description}</div>
+              )}
             </button>
           ))}
 
           {visiblePlaces.length === 0 && (
-            <div className="places-empty">Пока нет мест под такие фильтры. Попробуй ослабить условия.</div>
+            <div className="places-empty">
+              Пока нет мест под такие фильтры. Попробуй ослабить условия.
+            </div>
           )}
         </div>
       </div>
 
-      {/* Деталка маршрута (можно оставить — появится, если выбрать маршрут ниже) */}
+      {/* Деталка маршрута (если хочешь — можно оставить, чтобы ниже показать сам маршрут) */}
       {activeRoute && (
         <div className="route-detail-card">
           <div className="route-detail-header">
@@ -846,8 +847,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       )}
 
-      {/* Список маршрутов как раньше — ниже достопримечательностей */}
-      <div className="routes-list">
+      {/* Список маршрутов (как был) — можно убрать, если не нужен */}
+      <div className="routes-list routes-list-bottom">
         {visibleRoutes.map(route => (
           <button
             type="button"
