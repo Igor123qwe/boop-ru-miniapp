@@ -7,7 +7,7 @@ type Props = {
   trips: TripTemplate[]
   onOpenTrip: (tripId: string) => void
   onCreateTrip: () => void
-  onOpenPopular: (city: string) => void // сюда прилетает slug
+  onOpenPopular: (citySlug: string) => void // сюда прилетает slug города
 }
 
 const POPULAR_CITIES = [
@@ -47,7 +47,7 @@ export const TripsListPage: React.FC<Props> = ({
             key={city.id}
             type="button"
             className="city-card"
-            onClick={() => onOpenPopular(city.id)}  // ✅ slug, НЕ name
+            onClick={() => onOpenPopular(city.id)} // передаём slug: 'kaliningrad', 'moscow', ...
           >
             {city.image && <img src={city.image} alt={city.name} />}
             <span className="city-name">{city.name}</span>

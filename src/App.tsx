@@ -1,3 +1,4 @@
+// src/App.tsx
 import React, { useEffect, useState } from 'react'
 import { useTelegramWebApp } from './hooks/useTelegramWebApp'
 import { api } from './api'
@@ -53,6 +54,7 @@ export const App: React.FC = () => {
         const list = await api.listTrips()
         setTrips(list)
 
+        // после загрузки из Telegram сразу показываем список
         setCurrentPage('tripsList')
       } catch (e) {
         console.error(e)
@@ -67,6 +69,12 @@ export const App: React.FC = () => {
   }, [isReady, tgUser])
 
   // === ХЕНДЛЕРЫ НАВИГАЦИИ ===
+  const goToTripsList = () => {
+    setCurrentPage('tripsList')
+    setSelectedTripId(null)
+    setSelectedCity(null)
+  }
+
   const goToTripDetail = (tripId: string) => {
     setSelectedTripId(tripId)
     setCurrentPage('tripDetail')
@@ -87,8 +95,8 @@ export const App: React.FC = () => {
   }
 
   // открыть список популярных маршрутов по выбранному городу
-  const handleOpenPopularRoutes = (city: string) => {
-    setSelectedCity(city)
+  const handleOpenPopularRoutes = (citySlug: string) => {
+    setSelectedCity(citySlug)           // 'kaliningrad', 'moscow', 'spb', ...
     setCurrentPage('popularRoutes')
   }
 
@@ -113,7 +121,7 @@ export const App: React.FC = () => {
   // === ОСНОВНАЯ РАЗМЕТКА ===
   return (
     <Layout
-      onGoToTripsList={() => setCurrentPage('tripsList')}
+      onGoToTripsList={goToTripsList}
       onGoToMyTrips={handleOpenMyTrips}
       onCreateTrip={handleCreateTripClick}
     >
@@ -159,7 +167,7 @@ export const App: React.FC = () => {
       {currentPage === 'popularRoutes' && selectedCity && (
         <PopularRoutesPage
           city={selectedCity}
-          onBack={() => setCurrentPage('tripsList')}
+          onBack={goToTripsList}
         />
       )}
 
