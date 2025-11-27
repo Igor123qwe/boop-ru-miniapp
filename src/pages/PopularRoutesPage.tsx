@@ -37,14 +37,13 @@ type WikiInfoState = {
   url: string | null
 }
 
-// 🔴 запасная картинка на все случаи
-const TEST_IMAGE_URL =
-  'https://upload.wikimedia.org/wikipedia/commons/6/6c/Konigsberg_Cathedral_2012_1.jpg'
+// 🔴 локальная заглушка (создай public/images/placeholder.jpg)
+const TEST_IMAGE_URL = '/images/placeholder.jpg'
 
-// 🔑 Ключ Pixabay (у тебя уже рабочий)
+// 🔑 твой ключ Pixabay
 const PIXABAY_API_KEY = '12092649-81b01f27ff917e1832098ab3e'
 
-// ===== Загрузка фото с Pixabay по текстовому запросу =====
+// ===== Загрузка фото с Pixabay и оборачивание их в /api/image-proxy =====
 const loadPixabayImages = async (query: string): Promise<string[]> => {
   const trimmed = query.trim()
   if (!trimmed) return []
@@ -70,17 +69,19 @@ const loadPixabayImages = async (query: string): Promise<string[]> => {
     const data = await res.json()
     if (!Array.isArray(data.hits)) return []
 
-    // Берём нормальный размер
-    return data.hits
+    const rawUrls: string[] = data.hits
       .map((h: any) => h.webformatURL as string | undefined)
       .filter((u): u is string => Boolean(u))
+
+    // 👉 тут ключевой момент: возвращаем уже наши /api image-proxy URL
+    return rawUrls.map(u => `/api/image-proxy?src=${encodeURIComponent(u)}`)
   } catch (e) {
     console.error('Pixabay fetch error', e)
     return []
   }
 }
 
-// ===== Википедия только для текста =====
+// ===== Википедия для текста =====
 const fetchWikiExtract = async (
   rawTitle: string
 ): Promise<{ extract: string; url: string } | null> => {
@@ -247,10 +248,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // иначе сначала убираем старые
+    // иначе очищаем и грузим с Pixabay
     setPointImages([])
 
-    // пробуем загрузить с Pixabay
     const titleForQuery = point.wikiTitle || point.title
     const q = `${route.city || cityTitle} ${titleForQuery}`
 
@@ -259,7 +259,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (imgs.length > 0) {
       setPointImages(imgs)
     } else {
-      // совсем ничего не нашли – ставим запасную
       setPointImages([TEST_IMAGE_URL])
     }
   }
@@ -386,6 +385,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     // 3) если локальных нет – пробуем Pixabay по названию маршрута
     setRouteImages([])
+
     const q = `${route.city || cityTitle} ${route.title}`
     const remoteImgs = await loadPixabayImages(q)
 
