@@ -1,23 +1,33 @@
 // src/pages/TripsListPage.tsx
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import type { TripTemplate } from '../types'
+import { api } from '../api'
 import './TripsListPage.css'
 
 type Props = {
   trips: TripTemplate[]
   onOpenTrip: (tripId: string) => void
   onCreateTrip: () => void
-  onOpenPopular: (city: string) => void // сюда прилетает slug города
+  onOpenPopular: (city: string) => void // slug города
 }
 
-// какие города показываем на главном экране
+// Города, которые показываем на главной
 const POPULAR_CITIES = [
-  { id: 'kaliningrad', name: 'Калининград', image: '/images/kaliningrad.jpg' },
-  { id: 'moscow', name: 'Москва', image: '/images/moscow.jpg' },
-  { id: 'spb', name: 'Санкт-Петербург', image: '/images/spb.jpg' },
-  { id: 'sochi', name: 'Сочи', image: '/images/sochi.jpg' },
-  { id: 'kazan', name: 'Казань', image: '/images/kazan.jpg' },
+  { id: 'kaliningrad', name: 'Калининград' },
+  { id: 'moscow', name: 'Москва' },
+  { id: 'spb', name: 'Санкт-Петербург' },
+  { id: 'sochi', name: 'Сочи' },
+  { id: 'kazan', name: 'Казань' },
 ]
+
+// Соответствие slug → папка в облаке (кириллица)
+const CITY_MAP: Record<string, string> = {
+  kaliningrad: 'калининград',
+  moscow: 'москва',
+  spb: 'санкт-петербург',
+  sochi: 'сочи',
+  kazan: 'казань',
+}
 
 export const TripsListPage: React.FC<Props> = ({
   trips,
@@ -25,6 +35,38 @@ export const TripsListPage: React.FC<Props> = ({
   onCreateTrip,
   onOpenPopular,
 }) => {
+  const [cityPhotos, setCityPhotos] = useState<Record<string, string | null>>({})
+
+  // Загружаем обложки городов из облака
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadCovers() {
+      for (const city of POPULAR_CITIES) {
+        const slug = city.id                       // kaliningrad / moscow ...
+        const cloudCity = CITY_MAP[slug]           // калининград / москва ...
+
+        if (!cloudCity) continue
+
+        // Берем фото дня 1 (обложку)
+        const photos = await api.getCityDayPhotos(cloudCity, 1)
+        const cover = photos[0] || null
+
+        if (!cancelled) {
+          setCityPhotos(prev => ({
+            ...prev,
+            [slug]: cover,
+          }))
+        }
+      }
+    }
+
+    loadCovers()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <div className="home-page">
       {/* Блок "Создать маршрут" */}
@@ -43,20 +85,38 @@ export const TripsListPage: React.FC<Props> = ({
       {/* Популярные направления */}
       <div className="section-title">Популярные направления</div>
       <div className="cards-grid">
-        {POPULAR_CITIES.map(city => (
-          <button
-            key={city.id}
-            type="button"
-            className="city-card"
-            onClick={() => onOpenPopular(city.id)} // slug, НЕ русское имя
-          >
-            {city.image && <img src={city.image} alt={city.name} />}
-            <span className="city-name">{city.name}</span>
-          </button>
-        ))}
+        {POPULAR_CITIES.map(city => {
+          const cover = cityPhotos[city.id] // URL или null
+
+          return (
+            <button
+              key={city.id}
+              type="button"
+              className="city-card"
+              onClick={() => onOpenPopular(city.id)}
+            >
+              {cover ? (
+                <img
+                  src={cover}
+                  alt={city.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    background: '#ddd',
+                  }}
+                />
+              )}
+              <span className="city-name">{city.name}</span>
+            </button>
+          )
+        })}
       </div>
 
-      {/* Мои маршруты (если они есть) */}
+      {/* Мои маршруты */}
       {trips.length > 0 && (
         <>
           <div className="section-title">Мои поездки</div>
