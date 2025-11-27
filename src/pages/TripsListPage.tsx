@@ -47,7 +47,7 @@ export const TripsListPage: React.FC<Props> = ({
     key={city.id}
     type="button"
     className="city-card"
-    onClick={() => onOpenPopular(city.name)}  // ✅ вместо city.id
+    onClick={() => onOpenPopular(city.id)}  // ✅ вместо city.id
   >
     {city.image && <img src={city.image} alt={city.name} />}
     <span className="city-name">{city.name}</span>
