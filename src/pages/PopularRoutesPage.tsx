@@ -14,13 +14,19 @@ const normalizeCityKey = (city: string): string => {
   const c = city.toLowerCase()
 
   if (c.includes('калининг')) return 'kaliningrad'
-  if (c.includes('моск')) return 'moscow'
-  if (c.includes('петербург') || c.includes('санкт') || c.includes('спб'))
+  if (c.includes('mосква') || c.includes('моск')) return 'moscow'
+  if (c.includes('петербург') || c.includes('санкт') || c.includes('spb') || c.includes('спб'))
     return 'spb'
   if (c.includes('сочи')) return 'sochi'
   if (c.includes('казан')) return 'kazan'
 
   return city
+}
+
+// вспомогательно: все маршруты (на случай, если город не распознан)
+const getAllRoutes = (): PopularRoute[] => {
+  const arrays = Object.values(POPULAR_ROUTES) // Record<string, PopularRoute[]>
+  return arrays.flat()
 }
 
 // хелпер для склонения "день"
@@ -67,7 +73,12 @@ const fetchWikiExtract = async (
 
     const searchRes = await fetch(searchUrl)
     if (!searchRes.ok) return null
-    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
+    const searchData = (await searchRes.json()) as [
+      string,
+      string[],
+      string[],
+      string[]
+    ]
 
     const foundTitle = searchData[1]?.[0]
     if (!foundTitle) return null
@@ -104,8 +115,17 @@ const fetchWikiExtract = async (
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
+  // --- КЛЮЧЕВОЕ: логируем, что реально приходит, и делаем fallback ---
   const cityKey = normalizeCityKey(city)
-  const routes = POPULAR_ROUTES[cityKey] ?? POPULAR_ROUTES[city] ?? []
+  console.log('PopularRoutesPage city=', city, 'cityKey=', cityKey, 'keys=', Object.keys(POPULAR_ROUTES))
+
+  let routes = POPULAR_ROUTES[cityKey] ?? POPULAR_ROUTES[city]
+
+  // если всё равно пусто — показываем все маршруты (чтобы в интерфейсе не было пусто)
+  if (!routes || routes.length === 0) {
+    routes = getAllRoutes()
+  }
+
   const cityTitle = routes[0]?.city ?? city
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
@@ -222,7 +242,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         const resp = await fetch(`/api/photos?${params.toString()}`)
         const data = await resp.json()
 
-        if (data.status === 'done' && Array.isArray(data.photos) && data.photos.length > 0) {
+        if (
+          data.status === 'done' &&
+          Array.isArray(data.photos) &&
+          data.photos.length > 0
+        ) {
           setPointImages(prev => {
             const all = [...prev, ...data.photos]
             const uniq = Array.from(new Set(all))
@@ -591,8 +615,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           <div className="route-detail-header">
             <h3>{activeRoute.title}</h3>
             <div className="route-detail-subtitle">
-              {activeRoute.daysCount}{" "}
-              {declension("день", "дня", "дней", activeRoute.daysCount)}
+              {activeRoute.daysCount}{' '}
+              {declension('день', 'дня', 'дней', activeRoute.daysCount)}
             </div>
           </div>
 
@@ -631,13 +655,17 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
           {hasRouteInfo && (
             <div className="route-detail-meta">
-              {typeof activeRoute.distanceKm !== "undefined" && (
+              {typeof activeRoute.distanceKm !== 'undefined' && (
                 <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
               )}
-              {typeof activeRoute.estimatedBudget !== "undefined" && (
-                <div>Ориентировочный бюджет: от {activeRoute.estimatedBudget} ₽</div>
+              {typeof activeRoute.estimatedBudget !== 'undefined' && (
+                <div>
+                  Ориентировочный бюджет: от {activeRoute.estimatedBudget} ₽
+                </div>
               )}
-              {activeRoute.season && <div>Лучшее время: {activeRoute.season}</div>}
+              {activeRoute.season && (
+                <div>Лучшее время: {activeRoute.season}</div>
+              )}
             </div>
           )}
 
@@ -662,10 +690,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                       }
                     >
                       {point.time && (
-                        <span className="route-point-time">{point.time}</span>
+                        <span className="route-point-time">
+                          {point.time}
+                        </span>
                       )}
                       <div className="route-point-main">
-                        <div className="route-point-title">{point.title}</div>
+                        <div className="route-point-title">
+                          {point.title}
+                        </div>
                         {point.description && (
                           <div className="route-point-description">
                             {point.description}
@@ -697,11 +729,17 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               >
                 ✕
               </button>
-              <div className="point-modal-title">{activePoint.point.title}</div>
+              <div className="point-modal-title">
+                {activePoint.point.title}
+              </div>
               {activePoint.point.time && (
-                <div className="point-modal-time">{activePoint.point.time}</div>
+                <div className="point-modal-time">
+                  {activePoint.point.time}
+                </div>
               )}
-              <div className="point-modal-day">{activePoint.dayTitle}</div>
+              <div className="point-modal-day">
+                {activePoint.dayTitle}
+              </div>
             </div>
 
             {pointImages.length > 0 && (
@@ -750,27 +788,29 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 {wikiInfo.loading && <div>Загружаем описание…</div>}
                 {wikiInfo.error && (
                   <div>
-                    Не удалось загрузить описание с Википедии. Попробуйте позже
-                    или загляните на карту.
+                    Не удалось загрузить описание с Википедии. Попробуйте
+                    позже или загляните на карту.
                   </div>
                 )}
-                {!wikiInfo.loading && !wikiInfo.error && wikiInfo.extract && (
-                  <>
-                    <div className="point-modal-wiki-extract">
-                      {wikiInfo.extract}
-                    </div>
-                    {wikiInfo.url && (
-                      <a
-                        href={wikiInfo.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="point-modal-wiki-link"
-                      >
-                        Открыть статью в Википедии
-                      </a>
-                    )}
-                  </>
-                )}
+                {!wikiInfo.loading &&
+                  !wikiInfo.error &&
+                  wikiInfo.extract && (
+                    <>
+                      <div className="point-modal-wiki-extract">
+                        {wikiInfo.extract}
+                      </div>
+                      {wikiInfo.url && (
+                        <a
+                          href={wikiInfo.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="point-modal-wiki-link"
+                        >
+                          Открыть статью в Википедии
+                        </a>
+                      )}
+                    </>
+                  )}
               </div>
             )}
           </div>
@@ -796,7 +836,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 {declension('день', 'дня', 'дней', route.daysCount)}
               </div>
             </div>
-            <div className="route-desc">{route.shortDescription}</div>
+            <div className="route-desc">
+              {route.shortDescription}
+            </div>
           </button>
         ))}
       </div>
