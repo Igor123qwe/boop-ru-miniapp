@@ -9,6 +9,20 @@ type Props = {
   onBack: () => void
 }
 
+// Нормализуем строку города к нашим ключам popularRoutes
+const normalizeCityKey = (city: string): string => {
+  const c = city.toLowerCase()
+
+  if (c.includes('калининг')) return 'kaliningrad'
+  if (c.includes('моск')) return 'moscow'
+  if (c.includes('петербург') || c.includes('санкт') || c.includes('спб'))
+    return 'spb'
+  if (c.includes('сочи')) return 'sochi'
+  if (c.includes('казан')) return 'kazan'
+
+  return city
+}
+
 // хелпер для склонения "день"
 const declension = (one: string, few: string, many: string, value: number) => {
   const v = Math.abs(value) % 100
@@ -24,13 +38,15 @@ type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
 
 type ActivePointState = {
   routeId: string
-  routeTitle: string
   dayTitle: string
-  pointIndex: number
-  point: PopularRoute['days'][number]['points'][number]
+  point: {
+    title: string
+    time?: string
+    description?: string
+  }
 }
 
-type WikiInfoState = {
+type WikiState = {
   loading: boolean
   error: boolean
   extract: string | null
@@ -58,18 +74,23 @@ const fetchWikiExtract = async (
 
     const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
       foundTitle
-    )}`
+    )}?origin=*`
+
     const summaryRes = await fetch(summaryUrl)
     if (!summaryRes.ok) return null
+
     const summaryData = await summaryRes.json()
 
-    const extract =
-      (summaryData.extract as string | undefined) ??
-      (summaryData.description as string | undefined) ??
-      null
-    const url = (summaryData.content_urls?.desktop?.page as string | undefined) ?? null
+    const extract: string | undefined =
+      summaryData.extract ||
+      summaryData.description ||
+      summaryData?.content_urls?.desktop?.page
 
     if (!extract) return null
+
+    const url: string | undefined =
+      summaryData?.content_urls?.desktop?.page ||
+      `https://ru.wikipedia.org/wiki/${encodeURIComponent(foundTitle)}`
 
     return {
       extract,
@@ -83,7 +104,8 @@ const fetchWikiExtract = async (
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
-  const routes = POPULAR_ROUTES[city] ?? []
+  const cityKey = normalizeCityKey(city)
+  const routes = POPULAR_ROUTES[cityKey] ?? POPULAR_ROUTES[city] ?? []
   const cityTitle = routes[0]?.city ?? city
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
@@ -100,57 +122,44 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const [routeImages, setRouteImages] = useState<string[]>([])
 
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
-  const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
   const [pointImages, setPointImages] = useState<string[]>([])
+  const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
 
-  const [wikiInfo, setWikiInfo] = useState<WikiInfoState>({
+  const [wikiInfo, setWikiInfo] = useState<WikiState>({
     loading: false,
     error: false,
     extract: null,
     url: null,
   })
 
-  const handleOpenMap = (route: PopularRoute) => {
-    if (!route.yandexMapUrl) return
+  const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
 
-    if (webApp?.openLink) {
-      webApp.openLink(route.yandexMapUrl)
-    } else {
-      window.open(route.yandexMapUrl, '_blank')
+  useEffect(() => {
+    if (!activeRoute) {
+      setMainImageIndex(0)
+      setRouteImages([])
+      setActivePoint(null)
+      setPointImages([])
+      setActiveImageIndex(0)
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: null,
+        url: null,
+      })
+      setIsWikiVisible(false)
     }
-  }
+  }, [activeRoute])
 
-  const handleAddPhoto = () => {
-    if (!activeRoute || !activePoint) return
+  useEffect(() => {
+    setMaxDaysFilter(maxDaysAvailable)
+  }, [maxDaysAvailable])
 
-    const payload = {
-      type: 'add_place_photo',
-      routeId: activeRoute.id,
-      routeTitle: activeRoute.title,
-      city: activeRoute.city,
-      dayTitle: activePoint.dayTitle,
-      pointTitle: activePoint.point.title,
-      pointTime: activePoint.point.time ?? null,
-    }
+  useEffect(() => {
+    if (!webApp) return
+    webApp.expand()
+  }, [webApp])
 
-    const data = JSON.stringify(payload)
-
-    if (webApp?.sendData) {
-      webApp.sendData(data)
-    }
-
-    if (webApp?.showAlert) {
-      webApp.showAlert(
-        'Мы отправили запрос боту.\nПросто прикрепите фото этого места в чат — мы добавим его к маршруту.'
-      )
-    } else {
-      alert(
-        'Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.'
-      )
-    }
-  }
-
-  // фильтры
   const visibleRoutes = useMemo(() => {
     let result = [...routes]
     result = result.filter(r => r.daysCount <= maxDaysFilter)
@@ -180,36 +189,27 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  // открыть точку и загрузить для неё фото (ленивый парсинг через backend)
   const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
-    point: PopularRoute['days'][number]['points'][number],
+    point: { title: string; time?: string; description?: string },
     index: number
   ) => {
-    const state: ActivePointState = {
+    setActivePoint({
       routeId: route.id,
-      routeTitle: route.title,
       dayTitle,
-      pointIndex: index,
       point,
-    }
+    })
 
-    setActivePoint(state)
     setActiveImageIndex(0)
+    setPointImages([])
 
-    // 1. Сначала показываем локальные картинки из данных маршрута, если они есть
-    const baseImages =
-      point.images && point.images.length > 0 ? [...point.images] : []
-    if (baseImages.length > 0) {
-      setPointImages(baseImages)
+    if (Array.isArray(point.images) && point.images.length > 0) {
+      setPointImages(point.images)
     } else {
       setPointImages([])
     }
 
-    // 2. Затем дергаем backend /api/photos — он:
-    //   - если фото уже есть в хранилище → вернет status=done + массив URL
-    //   - если фото ещё нет → запустит парсер и вернет status=pending
     const params = new URLSearchParams({
       routeId: route.id,
       pointIndex: String(index),
@@ -223,51 +223,107 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         const data = await resp.json()
 
         if (data.status === 'done' && Array.isArray(data.photos) && data.photos.length > 0) {
-          // объединяем локальные фото и с бэкенда (убираем дубли)
           setPointImages(prev => {
             const all = [...prev, ...data.photos]
             const uniq = Array.from(new Set(all))
             return uniq.length > 0 ? uniq : [TEST_IMAGE_URL]
           })
         } else if (data.status === 'pending') {
-          // парсинг ещё идёт — пробуем ещё раз через небольшую паузу
           if (attempt < 3) {
             setTimeout(() => {
               fetchFromBackend(attempt + 1)
-            }, 1500)
+            }, 2000)
           } else {
-            // после нескольких попыток, если так и нет фото
-            setPointImages(prev =>
-              prev.length > 0 ? prev : [TEST_IMAGE_URL]
-            )
+            setPointImages(prev => {
+              if (prev.length > 0) return prev
+              return [TEST_IMAGE_URL]
+            })
           }
         } else {
-          // неожиданный ответ
-          setPointImages(prev =>
-            prev.length > 0 ? prev : [TEST_IMAGE_URL]
-          )
+          setPointImages(prev => {
+            if (prev.length > 0) return prev
+            return [TEST_IMAGE_URL]
+          })
         }
-      } catch (e) {
-        console.error('Ошибка загрузки фото точки', e)
-        setPointImages(prev =>
-          prev.length > 0 ? prev : [TEST_IMAGE_URL]
-        )
+      } catch {
+        setPointImages(prev => {
+          if (prev.length > 0) return prev
+          return [TEST_IMAGE_URL]
+        })
       }
     }
 
     fetchFromBackend(0)
-  }
 
-  const closePointModal = () => {
-    setActivePoint(null)
-    setActiveImageIndex(0)
-    setPointImages([])
     setWikiInfo({
-      loading: false,
+      loading: true,
       error: false,
       extract: null,
       url: null,
     })
+    setIsWikiVisible(true)
+  }
+
+  const handleCreateCustomRoute = () => {
+    if (!webApp) return
+
+    const payload = {
+      type: 'start_custom_route',
+      city: cityTitle,
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert(
+        'Мы отправим данные в ProGid, когда вы будете использовать мини-приложение внутри Telegram.'
+      )
+    }
+  }
+
+  const handleShareRoute = () => {
+    if (!webApp || !activeRoute) return
+
+    const payload = {
+      type: 'share_route',
+      routeId: activeRoute.id,
+      city: activeRoute.city,
+      title: activeRoute.title,
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert('Функция шаринга маршрута доступна внутри Telegram.')
+    }
+  }
+
+  const handleAddPlacePhoto = () => {
+    if (!webApp || !activeRoute || !activePoint) return
+
+    const payload = {
+      type: 'add_place_photo',
+      routeId: activeRoute.id,
+      routeTitle: activeRoute.title,
+      city: activeRoute.city,
+      dayTitle: activePoint.dayTitle,
+      pointTitle: activePoint.point.title,
+      pointTime: activePoint.point.time ?? null,
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert(
+        'Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.'
+      )
+    }
   }
 
   const showPrevImage = () => {
@@ -296,33 +352,34 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
-  // Википедия
   useEffect(() => {
-    if (!activePoint) return
-
-    if (activePoint.point.description) {
+    if (!activePoint) {
       setWikiInfo({
         loading: false,
         error: false,
         extract: null,
         url: null,
       })
+      setIsWikiVisible(false)
       return
     }
 
+    setWikiInfo({
+      loading: true,
+      error: false,
+      extract: null,
+      url: null,
+    })
+    setIsWikiVisible(true)
+
     const titleForWiki =
-      activePoint.point.wikiTitle || activePoint.point.title
+      activePoint.point.description && activePoint.point.description.length < 40
+        ? activePoint.point.description
+        : activePoint.point.title
 
     let isCancelled = false
 
     const loadWiki = async () => {
-      setWikiInfo({
-        loading: true,
-        error: false,
-        extract: null,
-        url: null,
-      })
-
       const data = await fetchWikiExtract(titleForWiki)
 
       if (isCancelled) return
@@ -352,184 +409,308 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  // выбор маршрута — формируем картинки для верхнего блока из локальных данных
   const handleSelectRoute = async (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
 
-    const images: string[] = []
-
-    if (route.coverImage) {
-      images.push(route.coverImage)
+    const localImages: string[] = []
+    if (route.coverImage) localImages.push(route.coverImage)
+    if (Array.isArray(route.images) && route.images.length > 0) {
+      localImages.push(...route.images)
     }
 
-    route.days.forEach(day => {
-      day.points.forEach(point => {
-        if (point.images && point.images.length > 0) {
-          images.push(point.images[0])
-        }
-      })
-    })
+    const uniqLocal = Array.from(new Set(localImages))
+    setRouteImages(uniqLocal.length > 0 ? uniqLocal : [TEST_IMAGE_URL])
 
-    setRouteImages(images)
+    if (uniqLocal.length > 0) {
+      setMainImageIndex(0)
+    }
   }
 
-  // === экран конкретного маршрута ===
-  if (activeRoute) {
-    const hasRouteInfo =
-      typeof activeRoute.distanceKm !== 'undefined' ||
-      typeof activeRoute.durationText !== 'undefined'
+  const hasRouteInfo =
+    typeof activeRoute?.daysCount !== 'undefined' ||
+    typeof activeRoute?.distanceKm !== 'undefined' ||
+    typeof activeRoute?.estimatedBudget !== 'undefined' ||
+    typeof activeRoute?.season !== 'undefined'
 
-    const mainImages = routeImages
-    const mainImagesCount = mainImages.length
+  const handleClosePointModal = () => {
+    setActivePoint(null)
+    setPointImages([])
+    setActiveImageIndex(0)
+    setWikiInfo({
+      loading: false,
+      error: false,
+      extract: null,
+      url: null,
+    })
+    setIsWikiVisible(false)
+  }
 
-    return (
-      <div className="popular-routes-page">
-        <button
-          className="back-btn"
-          type="button"
-          onClick={() => {
-            setActiveRoute(null)
-            setRouteImages([])
-          }}
-        >
-          ← Назад к списку
+  return (
+    <div className="popular-routes-page">
+      <div className="pr-header">
+        <button className="pr-back-btn" type="button" onClick={onBack}>
+          ← Назад
         </button>
+        <div className="pr-header-main">
+          <h2>Готовые маршруты по городу</h2>
+          <div className="pr-header-city">{cityTitle}</div>
+        </div>
+      </div>
 
-        <h2 className="page-title">{activeRoute.title}</h2>
-        <p className="route-desc">{activeRoute.shortDescription}</p>
-
-        {mainImagesCount > 0 && (
-          <div className="route-main-carousel">
-            {mainImagesCount > 1 && (
-              <button
-                type="button"
-                className="route-main-carousel-btn left"
-                onClick={() => showPrevMainImage(mainImagesCount)}
-              >
-                ◀
-              </button>
-            )}
-            <img
-              src={mainImages[mainImageIndex % mainImagesCount]}
-              alt={activeRoute.title}
-              className="route-main-carousel-image"
-              onError={e => {
-                e.currentTarget.src = TEST_IMAGE_URL
-              }}
-            />
-            {mainImagesCount > 1 && (
-              <button
-                type="button"
-                className="route-main-carousel-btn right"
-                onClick={() => showNextMainImage(mainImagesCount)}
-              >
-                ▶
-              </button>
-            )}
+      <div className="pr-filters">
+        <div className="pr-filter-section">
+          <span className="pr-filter-label">Сложность:</span>
+          <div className="pr-segmented">
+            <button
+              type="button"
+              className={
+                difficultyFilter === 'all'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setDifficultyFilter('all')}
+            >
+              Любая
+            </button>
+            <button
+              type="button"
+              className={
+                difficultyFilter === 'easy'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setDifficultyFilter('easy')}
+            >
+              Лёгкие
+            </button>
+            <button
+              type="button"
+              className={
+                difficultyFilter === 'medium'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setDifficultyFilter('medium')}
+            >
+              Средние
+            </button>
+            <button
+              type="button"
+              className={
+                difficultyFilter === 'hard'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setDifficultyFilter('hard')}
+            >
+              Сложные
+            </button>
           </div>
-        )}
-
-        {hasRouteInfo && (
-          <div className="route-detail-meta">
-            {typeof activeRoute.distanceKm !== 'undefined' && (
-              <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
-            )}
-            {activeRoute.durationText && (
-              <div>В пути: {activeRoute.durationText}</div>
-            )}
-          </div>
-        )}
-
-        <button
-          type="button"
-          className="route-open-map-btn"
-          onClick={() => handleOpenMap(activeRoute)}
-        >
-          Открыть маршрут в Яндекс.Картах
-        </button>
-
-        <div className="route-days-list">
-          {activeRoute.days.map(day => (
-            <div key={day.title} className="route-day-block">
-              <div className="route-day-title">{day.title}</div>
-              {day.description && (
-                <p className="route-day-text">{day.description}</p>
-              )}
-
-              <ul className="route-points">
-                {day.points.map((point, index) => (
-                  <li
-                    key={index}
-                    className="route-point route-point-clickable"
-                    onClick={() =>
-                      openPointModal(activeRoute, day.title, point, index)
-                    }
-                  >
-                    {point.time && (
-                      <span className="route-point-time">{point.time}</span>
-                    )}
-                    <div className="route-point-main">
-                      <div className="route-point-title">{point.title}</div>
-                      {point.description && (
-                        <div className="route-point-description">
-                          {point.description}
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
         </div>
 
-        {activeRoute.yandexMapEmbedUrl && (
-          <div className="route-detail-map">
-            <iframe
-              src={activeRoute.yandexMapEmbedUrl}
-              style={{ border: 0, width: '100%', height: '100%' }}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
+        <div className="pr-filter-section">
+          <span className="pr-filter-label">Максимум дней:</span>
+          <div className="pr-range-row">
+            <input
+              type="range"
+              min={1}
+              max={maxDaysAvailable}
+              step={1}
+              value={maxDaysFilter}
+              onChange={e => setMaxDaysFilter(Number(e.target.value))}
             />
+            <span className="pr-range-value">
+              до {maxDaysFilter}{' '}
+              {declension('дня', 'дней', 'дней', maxDaysFilter)}
+            </span>
           </div>
-        )}
+        </div>
 
-        {activePoint && (
-          <div className="route-point-modal-overlay" onClick={closePointModal}>
-            <div
-              className="route-point-modal"
-              onClick={e => e.stopPropagation()}
+        <div className="pr-filter-section">
+          <span className="pr-filter-label">Сортировать по:</span>
+          <div className="pr-segmented">
+            <button
+              type="button"
+              className={
+                sortMode === 'popularity'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setSortMode('popularity')}
             >
-              <div className="route-point-modal-header">
-                <div className="route-point-modal-text">
-                  <div className="route-point-modal-day">
-                    {activePoint.dayTitle}
-                  </div>
-                  <div className="route-point-modal-title">
-                    {activePoint.point.title}
-                  </div>
-                  {activePoint.point.time && (
-                    <div className="route-point-modal-time">
-                      {activePoint.point.time}
+              Популярности
+            </button>
+            <button
+              type="button"
+              className={
+                sortMode === 'days'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setSortMode('days')}
+            >
+              Количеству дней
+            </button>
+            <button
+              type="button"
+              className={
+                sortMode === 'difficulty'
+                  ? 'pr-segmented-btn active'
+                  : 'pr-segmented-btn'
+              }
+              onClick={() => setSortMode('difficulty')}
+            >
+              Сложности
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="pr-actions-row">
+        <button
+          type="button"
+          className="pr-create-route-btn"
+          onClick={handleCreateCustomRoute}
+        >
+          + Создать свой маршрут
+        </button>
+        {activeRoute && (
+          <button
+            type="button"
+            className="pr-share-route-btn"
+            onClick={handleShareRoute}
+          >
+            Поделиться этим маршрутом
+          </button>
+        )}
+      </div>
+
+      {activeRoute && (
+        <div className="route-detail-card">
+          <div className="route-detail-header">
+            <h3>{activeRoute.title}</h3>
+            <div className="route-detail-subtitle">
+              {activeRoute.daysCount}{" "}
+              {declension("день", "дня", "дней", activeRoute.daysCount)}
+            </div>
+          </div>
+
+          {routeImages.length > 0 && (
+            <div className="route-main-carousel">
+              <div className="route-main-carousel-inner">
+                {routeImages.length > 1 && (
+                  <button
+                    type="button"
+                    className="route-main-carousel-btn left"
+                    onClick={() => showPrevMainImage(routeImages.length)}
+                  >
+                    ◀
+                  </button>
+                )}
+                <img
+                  src={routeImages[mainImageIndex % routeImages.length]}
+                  alt={activeRoute.title}
+                  className="route-main-carousel-image"
+                  onError={e => {
+                    e.currentTarget.src = TEST_IMAGE_URL
+                  }}
+                />
+                {routeImages.length > 1 && (
+                  <button
+                    type="button"
+                    className="route-main-carousel-btn right"
+                    onClick={() => showNextMainImage(routeImages.length)}
+                  >
+                    ▶
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {hasRouteInfo && (
+            <div className="route-detail-meta">
+              {typeof activeRoute.distanceKm !== "undefined" && (
+                <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
+              )}
+              {typeof activeRoute.estimatedBudget !== "undefined" && (
+                <div>Ориентировочный бюджет: от {activeRoute.estimatedBudget} ₽</div>
+              )}
+              {activeRoute.season && <div>Лучшее время: {activeRoute.season}</div>}
+            </div>
+          )}
+
+          <div className="route-days-list">
+            {activeRoute.days.map((day, dayIndex) => (
+              <div key={dayIndex} className="route-day-block">
+                <div className="route-day-header">
+                  <div className="route-day-title">{day.title}</div>
+                  {day.description && (
+                    <div className="route-day-description">
+                      {day.description}
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="route-point-modal-close"
-                  onClick={closePointModal}
-                >
-                  ✕
-                </button>
+                <ul className="route-points-list">
+                  {day.points.map((point, index) => (
+                    <li
+                      key={index}
+                      className="route-point-item"
+                      onClick={() =>
+                        openPointModal(activeRoute, day.title, point, index)
+                      }
+                    >
+                      {point.time && (
+                        <span className="route-point-time">{point.time}</span>
+                      )}
+                      <div className="route-point-main">
+                        <div className="route-point-title">{point.title}</div>
+                        {point.description && (
+                          <div className="route-point-description">
+                            {point.description}
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-              {pointImages.length > 0 && (
-                <div className="route-point-carousel">
+      {activePoint && (
+        <div className="point-modal-backdrop" onClick={handleClosePointModal}>
+          <div
+            className="point-modal"
+            onClick={e => {
+              e.stopPropagation()
+            }}
+          >
+            <div className="point-modal-header">
+              <button
+                type="button"
+                className="point-modal-close"
+                onClick={handleClosePointModal}
+              >
+                ✕
+              </button>
+              <div className="point-modal-title">{activePoint.point.title}</div>
+              {activePoint.point.time && (
+                <div className="point-modal-time">{activePoint.point.time}</div>
+              )}
+              <div className="point-modal-day">{activePoint.dayTitle}</div>
+            </div>
+
+            {pointImages.length > 0 && (
+              <div className="point-modal-carousel">
+                <div className="point-modal-carousel-inner">
                   {pointImages.length > 1 && (
                     <button
                       type="button"
-                      className="route-point-carousel-btn left"
+                      className="point-modal-carousel-btn left"
                       onClick={showPrevImage}
                     >
                       ◀
@@ -538,7 +719,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   <img
                     src={pointImages[activeImageIndex % pointImages.length]}
                     alt={activePoint.point.title}
-                    className="route-point-carousel-image"
+                    className="point-modal-image"
                     onError={e => {
                       e.currentTarget.src = TEST_IMAGE_URL
                     }}
@@ -546,136 +727,66 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   {pointImages.length > 1 && (
                     <button
                       type="button"
-                      className="route-point-carousel-btn right"
+                      className="point-modal-carousel-btn right"
                       onClick={showNextImage}
                     >
                       ▶
                     </button>
                   )}
                 </div>
-              )}
+              </div>
+            )}
 
-              <div className="route-point-modal-description-block">
-                {activePoint.point.description ? (
-                  <p className="route-point-modal-description">
-                    {activePoint.point.description}
-                  </p>
-                ) : wikiInfo.loading ? (
-                  <p className="route-point-modal-description route-point-modal-description--muted">
-                    Загружаем описание места…
-                  </p>
-                ) : wikiInfo.extract ? (
-                  <p className="route-point-modal-description">
-                    {wikiInfo.extract}
-                  </p>
-                ) : (
-                  <p className="route-point-modal-description route-point-modal-description--muted">
-                    Описание пока не добавлено.
-                  </p>
+            <button
+              type="button"
+              className="point-modal-add-photo-btn"
+              onClick={handleAddPlacePhoto}
+            >
+              + Добавить фото этого места
+            </button>
+
+            {isWikiVisible && (
+              <div className="point-modal-wiki">
+                {wikiInfo.loading && <div>Загружаем описание…</div>}
+                {wikiInfo.error && (
+                  <div>
+                    Не удалось загрузить описание с Википедии. Попробуйте позже
+                    или загляните на карту.
+                  </div>
                 )}
-
-                {wikiInfo.url && (
-                  <a
-                    href={wikiInfo.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="route-point-modal-source"
-                  >
-                    Подробнее на Википедии
-                  </a>
+                {!wikiInfo.loading && !wikiInfo.error && wikiInfo.extract && (
+                  <>
+                    <div className="point-modal-wiki-extract">
+                      {wikiInfo.extract}
+                    </div>
+                    {wikiInfo.url && (
+                      <a
+                        href={wikiInfo.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="point-modal-wiki-link"
+                      >
+                        Открыть статью в Википедии
+                      </a>
+                    )}
+                  </>
                 )}
               </div>
-
-              <button
-                type="button"
-                className="route-point-add-photo-btn"
-                onClick={handleAddPhoto}
-              >
-                + Добавить фото
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // === список маршрутов ===
-  return (
-    <div className="popular-routes-page">
-      <button className="back-btn" type="button" onClick={onBack}>
-        ← Назад
-      </button>
-
-      <h2 className="page-title">Готовые маршруты: {cityTitle}</h2>
-
-      {routes.length > 0 && (
-        <div className="route-filters">
-          <div className="route-filters-row">
-            <label className="route-filter-label">
-              Сортировка
-              <select
-                className="route-filter-select"
-                value={sortMode}
-                onChange={e => setSortMode(e.target.value as SortMode)}
-              >
-                <option value="popularity">По популярности</option>
-                <option value="days">По длительности</option>
-                <option value="difficulty">По сложности</option>
-              </select>
-            </label>
-
-            <label className="route-filter-label">
-              Сложность
-              <select
-                className="route-filter-select"
-                value={difficultyFilter}
-                onChange={e =>
-                  setDifficultyFilter(e.target.value as DifficultyFilter)
-                }
-              >
-                <option value="all">Любая</option>
-                <option value="easy">Лёгкий день</option>
-                <option value="medium">Средний</option>
-                <option value="hard">Насыщенный</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="route-filters-row">
-            <label className="route-filter-label route-filter-label--full">
-              Длительность поездки
-              <div className="route-slider-row">
-                <input
-                  type="range"
-                  min={1}
-                  max={maxDaysAvailable}
-                  value={maxDaysFilter}
-                  onChange={e => setMaxDaysFilter(Number(e.target.value))}
-                  className="route-filter-range"
-                />
-                <span className="route-slider-value">
-                  До {maxDaysFilter}{' '}
-                  {declension('дня', 'дней', 'дней', maxDaysFilter)}
-                </span>
-              </div>
-            </label>
+            )}
           </div>
         </div>
-      )}
-
-      {visibleRoutes.length === 0 && (
-        <p className="empty-state">
-          Нет маршрутов по выбранным параметрам. Попробуйте изменить фильтры.
-        </p>
       )}
 
       <div className="routes-list">
         {visibleRoutes.map(route => (
           <button
-            key={route.id}
             type="button"
-            className="route-card-btn"
+            key={route.id}
+            className={
+              activeRoute?.id === route.id
+                ? 'route-card route-card-active'
+                : 'route-card'
+            }
             onClick={() => handleSelectRoute(route)}
           >
             <div className="route-header">
