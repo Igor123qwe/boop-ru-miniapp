@@ -40,8 +40,6 @@ const declension = (one: string, few: string, many: string, value: number) => {
 
 type SortMode = 'popularity' | 'days' | 'difficulty'
 type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
-// новый режим отображения готовых маршрутов
-type ReadyMode = 'none' | 'all' | 'filtered'
 
 type ActivePointState = {
   routeId: string
@@ -112,11 +110,32 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
 
+// Тип "достопримечательность" в списке
+type PlaceItem = {
+  id: string
+  route: PopularRoute
+  dayTitle: string
+  pointIndex: number
+  point: {
+    title: string
+    time?: string
+    description?: string
+    images?: string[]
+  }
+}
+
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
   const cityKey = normalizeCityKey(city)
-  console.log('PopularRoutesPage city=', city, 'cityKey=', cityKey, 'keys=', Object.keys(POPULAR_ROUTES))
+  console.log(
+    'PopularRoutesPage city=',
+    city,
+    'cityKey=',
+    cityKey,
+    'keys=',
+    Object.keys(POPULAR_ROUTES)
+  )
 
   let routes = POPULAR_ROUTES[cityKey] ?? POPULAR_ROUTES[city]
   if (!routes || routes.length === 0) {
@@ -152,14 +171,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   // кэш фоток по точкам: ключ = routeId_pointIndex
   const [pointPhotosCache, setPointPhotosCache] = useState<Record<string, string[]>>({})
 
-  // новый режим: пока ничего не выбрано / показать все / подбор
-  const [readyMode, setReadyMode] = useState<ReadyMode>('none')
-  const [readyDialogOpen, setReadyDialogOpen] = useState(false)
-
-  // чекбоксы "добавить рестораны / кафе" — пока больше как анкета
-  const [withRestaurants, setWithRestaurants] = useState(false)
-  const [withCafes, setWithCafes] = useState(false)
-
   // сброс всего при смене activeRoute
   useEffect(() => {
     if (!activeRoute) {
@@ -187,31 +198,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     webApp.expand()
   }, [webApp])
 
-  // маршруты, которые реально показываем, в зависимости от режима
+  // маршруты с учётом фильтров (как раньше)
   const visibleRoutes = useMemo(() => {
-    if (readyMode === 'none') return []
-
     let result = [...routes]
-
-    if (readyMode === 'all') {
-      // просто все маршруты, сортировка по популярности
-      result.sort((a, b) => {
-        const pa = a.popularity ?? 0
-        const pb = b.popularity ?? 0
-        return pb - pa
-      })
-      return result
-    }
-
-    // режим "подбор" — применяем фильтры
     result = result.filter(r => r.daysCount <= maxDaysFilter)
 
     if (difficultyFilter !== 'all') {
       result = result.filter(r => (r.difficulty ?? 'easy') === difficultyFilter)
     }
-
-    // TODO: withRestaurants / withCafes можно будет использовать,
-    // когда в маршрутах появятся соответствующие поля/теги
 
     result.sort((a, b) => {
       if (sortMode === 'days') {
@@ -230,7 +224,37 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
 
     return result
-  }, [routes, sortMode, difficultyFilter, maxDaysFilter, readyMode])
+  }, [routes, sortMode, difficultyFilter, maxDaysFilter])
+
+  // ⚡ НОВОЕ: список всех достопримечательностей края (по отфильтрованным маршрутам)
+  const visiblePlaces = useMemo<PlaceItem[]>(() => {
+    const list: PlaceItem[] = []
+    const usedTitles = new Set<string>()
+    const baseRoutes = visibleRoutes.length > 0 ? visibleRoutes : routes
+
+    for (const route of baseRoutes) {
+      route.days.forEach((day, dayIdx) => {
+        day.points.forEach((point, pointIdx) => {
+          const keyTitle = (point.title || '').toLowerCase().trim()
+          if (!keyTitle) return
+
+          // если не хотим дубли по заголовку — фильтруем
+          if (usedTitles.has(keyTitle)) return
+          usedTitles.add(keyTitle)
+
+          list.push({
+            id: `${route.id}_${dayIdx}_${pointIdx}`,
+            route,
+            dayTitle: day.title,
+            pointIndex: pointIdx,
+            point,
+          })
+        })
+      })
+    }
+
+    return list
+  }, [visibleRoutes, routes])
 
   const openPointModal = async (
     route: PopularRoute,
@@ -239,6 +263,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     index: number
   ) => {
     const cacheKey = `${route.id}_${index}`
+
+    // запоминаем маршрут, чтобы можно было, например, отправить в бота
+    setActiveRoute(route)
 
     // сразу открываем модалку
     setActivePoint({
@@ -356,25 +383,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
-  const handleShareRoute = () => {
-    if (!webApp || !activeRoute) return
-
-    const payload = {
-      type: 'share_route',
-      routeId: activeRoute.id,
-      city: activeRoute.city,
-      title: activeRoute.title,
-    }
-
-    const data = JSON.stringify(payload)
-
-    if (webApp?.sendData) {
-      webApp.sendData(data)
-    } else {
-      alert('Функция шаринга маршрута доступна внутри Telegram.')
-    }
-  }
-
   const handleAddPlacePhoto = () => {
     if (!webApp || !activeRoute || !activePoint) return
 
@@ -481,11 +489,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }, [activePoint])
 
   const handleSelectRoute = (route: PopularRoute) => {
-    // если ещё не выбран режим готовых маршрутов — делаем "Показать все"
-    if (readyMode === 'none') {
-      setReadyMode('all')
-    }
-
     setActiveRoute(route)
     setMainImageIndex(0)
 
@@ -522,26 +525,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setIsWikiVisible(false)
   }
 
-  const openReadyDialog = () => {
-    setReadyDialogOpen(true)
-  }
-
-  const handleReadyShowAll = () => {
-    setReadyMode('all')
-    setReadyDialogOpen(false)
-  }
-
-  const handleReadyFiltered = () => {
-    // сбрасываем фильтры в дефолт и включаем режим "подбор"
-    setDifficultyFilter('all')
-    setMaxDaysFilter(maxDaysAvailable)
-    setWithRestaurants(false)
-    setWithCafes(false)
-    setSortMode('popularity')
-    setReadyMode('filtered')
-    setReadyDialogOpen(false)
-  }
-
   return (
     <div className="popular-routes-page">
       <div className="pr-header">
@@ -549,180 +532,137 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           ← Назад
         </button>
         <div className="pr-header-main">
-          <h2>Маршруты по городу</h2>
+          <h2>Готовые маршруты по городу</h2>
           <div className="pr-header-city">{cityTitle}</div>
         </div>
       </div>
 
-      {/* Две главные кнопки */}
-      <div className="pr-top-actions">
-        <button
-          type="button"
-          className="pr-top-btn primary"
-          onClick={handleCreateCustomRoute}
-        >
-          Создать свой маршрут
-        </button>
-        <button
-          type="button"
-          className="pr-top-btn secondary"
-          onClick={openReadyDialog}
-        >
-          Готовые маршруты
-        </button>
-      </div>
-
-      {/* Диалог выбора: показать все / подобрать */}
-      {readyDialogOpen && (
-        <div className="ready-dialog-backdrop">
-          <div
-            className="ready-dialog"
-            onClick={e => {
-              e.stopPropagation()
-            }}
-          >
-            <h3>Готовые маршруты по городу</h3>
-            <p>Как удобнее показать маршруты?</p>
-            <div className="ready-dialog-buttons">
-              <button type="button" onClick={handleReadyShowAll}>
-                Показать все
-              </button>
-              <button type="button" onClick={handleReadyFiltered}>
-                Подобрать маршрут
-              </button>
-            </div>
-
-            <p className="ready-dialog-hint">
-              При подборе можно будет указать сложность, количество дней и добавить рестораны и кафе.
-            </p>
-
+      {/* Блок фильтров как на старом скрине */}
+      <div className="pr-filters">
+        <div className="pr-filter-section">
+          <span className="pr-filter-label">Сложность:</span>
+          <div className="pr-segmented">
             <button
               type="button"
-              className="ready-dialog-close"
-              onClick={() => setReadyDialogOpen(false)}
+              className={difficultyFilter === 'all' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setDifficultyFilter('all')}
             >
-              Закрыть
+              Любая
+            </button>
+            <button
+              type="button"
+              className={difficultyFilter === 'easy' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setDifficultyFilter('easy')}
+            >
+              Лёгкие
+            </button>
+            <button
+              type="button"
+              className={difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setDifficultyFilter('medium')}
+            >
+              Средние
+            </button>
+            <button
+              type="button"
+              className={difficultyFilter === 'hard' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setDifficultyFilter('hard')}
+            >
+              Сложные
             </button>
           </div>
         </div>
-      )}
 
-      {/* Анкета / фильтры показываем только в режиме "подбор" */}
-      {readyMode === 'filtered' && (
-        <div className="pr-filters">
-          <div className="pr-filter-section">
-            <span className="pr-filter-label">Сложность:</span>
-            <div className="pr-segmented">
-              <button
-                type="button"
-                className={difficultyFilter === 'all' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setDifficultyFilter('all')}
-              >
-                Любая
-              </button>
-              <button
-                type="button"
-                className={difficultyFilter === 'easy' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setDifficultyFilter('easy')}
-              >
-                Лёгкие
-              </button>
-              <button
-                type="button"
-                className={difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setDifficultyFilter('medium')}
-              >
-                Средние
-              </button>
-              <button
-                type="button"
-                className={difficultyFilter === 'hard' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setDifficultyFilter('hard')}
-              >
-                Сложные
-              </button>
-            </div>
-          </div>
-
-          <div className="pr-filter-section">
-            <span className="pr-filter-label">Максимум дней:</span>
-            <div className="pr-range-row">
-              <input
-                type="range"
-                min={1}
-                max={maxDaysAvailable}
-                step={1}
-                value={maxDaysFilter}
-                onChange={e => setMaxDaysFilter(Number(e.target.value))}
-              />
-              <span className="pr-range-value">
-                до {maxDaysFilter} {declension('дня', 'дней', 'дней', maxDaysFilter)}
-              </span>
-            </div>
-          </div>
-
-          <div className="pr-filter-section">
-            <span className="pr-filter-label">Что добавить:</span>
-            <div className="pr-checkboxes-row">
-              <label className="pr-checkbox">
-                <input
-                  type="checkbox"
-                  checked={withRestaurants}
-                  onChange={e => setWithRestaurants(e.target.checked)}
-                />
-                Рестораны
-              </label>
-              <label className="pr-checkbox">
-                <input
-                  type="checkbox"
-                  checked={withCafes}
-                  onChange={e => setWithCafes(e.target.checked)}
-                />
-                Кафе и кофейни
-              </label>
-            </div>
-          </div>
-
-          <div className="pr-filter-section">
-            <span className="pr-filter-label">Сортировать по:</span>
-            <div className="pr-segmented">
-              <button
-                type="button"
-                className={sortMode === 'popularity' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setSortMode('popularity')}
-              >
-                Популярности
-              </button>
-              <button
-                type="button"
-                className={sortMode === 'days' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setSortMode('days')}
-              >
-                Количеству дней
-              </button>
-              <button
-                type="button"
-                className={sortMode === 'difficulty' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
-                onClick={() => setSortMode('difficulty')}
-              >
-                Сложности
-              </button>
-            </div>
+        <div className="pr-filter-section">
+          <span className="pr-filter-label">Максимум дней:</span>
+          <div className="pr-range-row">
+            <input
+              type="range"
+              min={1}
+              max={maxDaysAvailable}
+              step={1}
+              value={maxDaysFilter}
+              onChange={e => setMaxDaysFilter(Number(e.target.value))}
+            />
+            <span className="pr-range-value">
+              до {maxDaysFilter} {declension('дня', 'дней', 'дней', maxDaysFilter)}
+            </span>
           </div>
         </div>
-      )}
 
-      {/* Кнопка "Поделиться маршрутом" */}
-      {readyMode !== 'none' && activeRoute && (
-        <div className="pr-actions-row">
-          <button type="button" className="pr-share-route-btn" onClick={handleShareRoute}>
-            Поделиться этим маршрутом
-          </button>
+        <div className="pr-filter-section">
+          <span className="pr-filter-label">Сортировать по:</span>
+          <div className="pr-segmented">
+            <button
+              type="button"
+              className={sortMode === 'popularity' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setSortMode('popularity')}
+            >
+              Популярности
+            </button>
+            <button
+              type="button"
+              className={sortMode === 'days' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setSortMode('days')}
+            >
+              Количеству дней
+            </button>
+            <button
+              type="button"
+              className={sortMode === 'difficulty' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
+              onClick={() => setSortMode('difficulty')}
+            >
+              Сложности
+            </button>
+          </div>
         </div>
-      )}
+      </div>
 
-      {/* Детальная карточка маршрута */}
-      {readyMode !== 'none' && activeRoute && (
+      {/* Полоска "+ Создать свой маршрут" как была */}
+      <div className="pr-actions-row">
+        <button type="button" className="pr-create-route-btn" onClick={handleCreateCustomRoute}>
+          + Создать свой маршрут
+        </button>
+      </div>
+
+      {/* ⚡ НОВЫЙ БЛОК: все достопримечательности края */}
+      <div className="places-section">
+        <div className="places-title">Достопримечательности города и области</div>
+        <div className="places-subtitle">
+          Нажми на любое место, чтобы посмотреть фотографии и короткое описание.
+        </div>
+
+        <div className="places-list">
+          {visiblePlaces.map(place => (
+            <button
+              key={place.id}
+              type="button"
+              className="place-card"
+              onClick={() =>
+                openPointModal(place.route, place.dayTitle, place.point, place.pointIndex)
+              }
+            >
+              {place.point.time && <div className="place-time">{place.point.time}</div>}
+              <div className="place-main">
+                <div className="place-title">{place.point.title}</div>
+                {place.point.description && (
+                  <div className="place-desc">{place.point.description}</div>
+                )}
+                <div className="place-meta">
+                  {place.route.title} · {place.dayTitle}
+                </div>
+              </div>
+            </button>
+          ))}
+
+          {visiblePlaces.length === 0 && (
+            <div className="places-empty">Пока нет мест под такие фильтры. Попробуй ослабить условия.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Деталка маршрута (можно оставить — появится, если выбрать маршрут ниже) */}
+      {activeRoute && (
         <div className="route-detail-card">
           <div className="route-detail-header">
             <h3>{activeRoute.title}</h3>
@@ -811,8 +751,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       )}
 
-      {/* Модалка точки маршрута */}
-      {readyMode !== 'none' && activePoint && (
+      {/* Модалка точки */}
+      {activePoint && (
         <div className="point-modal-backdrop" onClick={handleClosePointModal}>
           <div
             className="point-modal"
@@ -906,29 +846,27 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       )}
 
-      {/* Список готовых маршрутов */}
-      {readyMode !== 'none' && (
-        <div className="routes-list">
-          {visibleRoutes.map(route => (
-            <button
-              type="button"
-              key={route.id}
-              className={
-                activeRoute?.id === route.id ? 'route-card route-card-active' : 'route-card'
-              }
-              onClick={() => handleSelectRoute(route)}
-            >
-              <div className="route-card-header">
-                <div className="route-card-title">{route.title}</div>
-                <div className="route-days">
-                  {route.daysCount} {declension('день', 'дня', 'дней', route.daysCount)}
-                </div>
+      {/* Список маршрутов как раньше — ниже достопримечательностей */}
+      <div className="routes-list">
+        {visibleRoutes.map(route => (
+          <button
+            type="button"
+            key={route.id}
+            className={
+              activeRoute?.id === route.id ? 'route-card route-card-active' : 'route-card'
+            }
+            onClick={() => handleSelectRoute(route)}
+          >
+            <div className="route-card-header">
+              <div className="route-card-title">{route.title}</div>
+              <div className="route-days">
+                {route.daysCount} {declension('день', 'дня', 'дней', route.daysCount)}
               </div>
-              <div className="route-desc">{route.shortDescription}</div>
-            </button>
-          ))}
-        </div>
-      )}
+            </div>
+            <div className="route-desc">{route.shortDescription}</div>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
