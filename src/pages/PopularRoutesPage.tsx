@@ -1,4 +1,3 @@
-// src/pages/PopularRoutesPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
@@ -25,7 +24,7 @@ const normalizeCityKey = (city: string): string => {
 
 // вспомогательно: все маршруты (на случай, если город не распознан)
 const getAllRoutes = (): PopularRoute[] => {
-  const arrays = Object.values(POPULAR_ROUTES) // Record<string, PopularRoute[]>
+  const arrays = Object.values(POPULAR_ROUTES)
   return arrays.flat()
 }
 
@@ -49,6 +48,7 @@ type ActivePointState = {
     title: string
     time?: string
     description?: string
+    images?: string[]
   }
 }
 
@@ -73,12 +73,7 @@ const fetchWikiExtract = async (
 
     const searchRes = await fetch(searchUrl)
     if (!searchRes.ok) return null
-    const searchData = (await searchRes.json()) as [
-      string,
-      string[],
-      string[],
-      string[]
-    ]
+    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
 
     const foundTitle = searchData[1]?.[0]
     if (!foundTitle) return null
@@ -93,9 +88,7 @@ const fetchWikiExtract = async (
     const summaryData = await summaryRes.json()
 
     const extract: string | undefined =
-      summaryData.extract ||
-      summaryData.description ||
-      summaryData?.content_urls?.desktop?.page
+      summaryData.extract || summaryData.description || summaryData?.content_urls?.desktop?.page
 
     if (!extract) return null
 
@@ -115,13 +108,10 @@ const fetchWikiExtract = async (
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
-  // --- КЛЮЧЕВОЕ: логируем, что реально приходит, и делаем fallback ---
   const cityKey = normalizeCityKey(city)
   console.log('PopularRoutesPage city=', city, 'cityKey=', cityKey, 'keys=', Object.keys(POPULAR_ROUTES))
 
   let routes = POPULAR_ROUTES[cityKey] ?? POPULAR_ROUTES[city]
-
-  // если всё равно пусто — показываем все маршруты (чтобы в интерфейсе не было пусто)
   if (!routes || routes.length === 0) {
     routes = getAllRoutes()
   }
@@ -131,11 +121,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
   const [sortMode, setSortMode] = useState<SortMode>('popularity')
-  const [difficultyFilter, setDifficultyFilter] =
-    useState<DifficultyFilter>('all')
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all')
 
-  const maxDaysAvailable =
-    routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
+  const maxDaysAvailable = routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
   const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
 
   const [mainImageIndex, setMainImageIndex] = useState<number>(0)
@@ -154,6 +142,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
 
+  // сброс всего при смене activeRoute
   useEffect(() => {
     if (!activeRoute) {
       setMainImageIndex(0)
@@ -185,9 +174,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     result = result.filter(r => r.daysCount <= maxDaysFilter)
 
     if (difficultyFilter !== 'all') {
-      result = result.filter(
-        r => (r.difficulty ?? 'easy') === difficultyFilter
-      )
+      result = result.filter(r => (r.difficulty ?? 'easy') === difficultyFilter)
     }
 
     result.sort((a, b) => {
@@ -212,9 +199,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
-    point: { title: string; time?: string; description?: string },
+    point: { title: string; time?: string; description?: string; images?: string[] },
     index: number
   ) => {
+    // КЛЮЧЕВОЕ: setActivePoint вызывается синхронно – модалка откроется даже если бэкенд упадёт
     setActivePoint({
       routeId: route.id,
       dayTitle,
@@ -226,8 +214,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     if (Array.isArray(point.images) && point.images.length > 0) {
       setPointImages(point.images)
-    } else {
-      setPointImages([])
     }
 
     const params = new URLSearchParams({
@@ -242,11 +228,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         const resp = await fetch(`/api/photos?${params.toString()}`)
         const data = await resp.json()
 
-        if (
-          data.status === 'done' &&
-          Array.isArray(data.photos) &&
-          data.photos.length > 0
-        ) {
+        if (data.status === 'done' && Array.isArray(data.photos) && data.photos.length > 0) {
           setPointImages(prev => {
             const all = [...prev, ...data.photos]
             const uniq = Array.from(new Set(all))
@@ -258,22 +240,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               fetchFromBackend(attempt + 1)
             }, 2000)
           } else {
-            setPointImages(prev => {
-              if (prev.length > 0) return prev
-              return [TEST_IMAGE_URL]
-            })
+            setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
           }
         } else {
-          setPointImages(prev => {
-            if (prev.length > 0) return prev
-            return [TEST_IMAGE_URL]
-          })
+          setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
         }
       } catch {
-        setPointImages(prev => {
-          if (prev.length > 0) return prev
-          return [TEST_IMAGE_URL]
-        })
+        setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
       }
     }
 
@@ -301,9 +274,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (webApp?.sendData) {
       webApp.sendData(data)
     } else {
-      alert(
-        'Мы отправим данные в ProGid, когда вы будете использовать мини-приложение внутри Telegram.'
-      )
+      alert('Мы отправим данные в ProGid, когда вы будете использовать мини-приложение внутри Telegram.')
     }
   }
 
@@ -344,9 +315,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (webApp?.sendData) {
       webApp.sendData(data)
     } else {
-      alert(
-        'Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.'
-      )
+      alert('Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.')
     }
   }
 
@@ -433,7 +402,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }, [activePoint])
 
-  const handleSelectRoute = async (route: PopularRoute) => {
+  const handleSelectRoute = (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
 
@@ -488,44 +457,28 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           <div className="pr-segmented">
             <button
               type="button"
-              className={
-                difficultyFilter === 'all'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={difficultyFilter === 'all' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setDifficultyFilter('all')}
             >
               Любая
             </button>
             <button
               type="button"
-              className={
-                difficultyFilter === 'easy'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={difficultyFilter === 'easy' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setDifficultyFilter('easy')}
             >
               Лёгкие
             </button>
             <button
               type="button"
-              className={
-                difficultyFilter === 'medium'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={difficultyFilter === 'medium' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setDifficultyFilter('medium')}
             >
               Средние
             </button>
             <button
               type="button"
-              className={
-                difficultyFilter === 'hard'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={difficultyFilter === 'hard' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setDifficultyFilter('hard')}
             >
               Сложные
@@ -545,8 +498,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               onChange={e => setMaxDaysFilter(Number(e.target.value))}
             />
             <span className="pr-range-value">
-              до {maxDaysFilter}{' '}
-              {declension('дня', 'дней', 'дней', maxDaysFilter)}
+              до {maxDaysFilter} {declension('дня', 'дней', 'дней', maxDaysFilter)}
             </span>
           </div>
         </div>
@@ -556,33 +508,21 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           <div className="pr-segmented">
             <button
               type="button"
-              className={
-                sortMode === 'popularity'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={sortMode === 'popularity' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setSortMode('popularity')}
             >
               Популярности
             </button>
             <button
               type="button"
-              className={
-                sortMode === 'days'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={sortMode === 'days' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setSortMode('days')}
             >
               Количеству дней
             </button>
             <button
               type="button"
-              className={
-                sortMode === 'difficulty'
-                  ? 'pr-segmented-btn active'
-                  : 'pr-segmented-btn'
-              }
+              className={sortMode === 'difficulty' ? 'pr-segmented-btn active' : 'pr-segmented-btn'}
               onClick={() => setSortMode('difficulty')}
             >
               Сложности
@@ -592,19 +532,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       </div>
 
       <div className="pr-actions-row">
-        <button
-          type="button"
-          className="pr-create-route-btn"
-          onClick={handleCreateCustomRoute}
-        >
+        <button type="button" className="pr-create-route-btn" onClick={handleCreateCustomRoute}>
           + Создать свой маршрут
         </button>
         {activeRoute && (
-          <button
-            type="button"
-            className="pr-share-route-btn"
-            onClick={handleShareRoute}
-          >
+          <button type="button" className="pr-share-route-btn" onClick={handleShareRoute}>
             Поделиться этим маршрутом
           </button>
         )}
@@ -615,8 +547,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           <div className="route-detail-header">
             <h3>{activeRoute.title}</h3>
             <div className="route-detail-subtitle">
-              {activeRoute.daysCount}{' '}
-              {declension('день', 'дня', 'дней', activeRoute.daysCount)}
+              {activeRoute.daysCount} {declension('день', 'дня', 'дней', activeRoute.daysCount)}
             </div>
           </div>
 
@@ -659,13 +590,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
               )}
               {typeof activeRoute.estimatedBudget !== 'undefined' && (
-                <div>
-                  Ориентировочный бюджет: от {activeRoute.estimatedBudget} ₽
-                </div>
+                <div>Ориентировочный бюджет: от {activeRoute.estimatedBudget} ₽</div>
               )}
-              {activeRoute.season && (
-                <div>Лучшее время: {activeRoute.season}</div>
-              )}
+              {activeRoute.season && <div>Лучшее время: {activeRoute.season}</div>}
             </div>
           )}
 
@@ -675,35 +602,30 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 <div className="route-day-header">
                   <div className="route-day-title">{day.title}</div>
                   {day.description && (
-                    <div className="route-day-description">
-                      {day.description}
-                    </div>
+                    <div className="route-day-description">{day.description}</div>
                   )}
                 </div>
+
                 <ul className="route-points-list">
                   {day.points.map((point, index) => (
-                    <li
-                      key={index}
-                      className="route-point-item"
-                      onClick={() =>
-                        openPointModal(activeRoute, day.title, point, index)
-                      }
-                    >
-                      {point.time && (
-                        <span className="route-point-time">
-                          {point.time}
-                        </span>
-                      )}
-                      <div className="route-point-main">
-                        <div className="route-point-title">
-                          {point.title}
-                        </div>
-                        {point.description && (
-                          <div className="route-point-description">
-                            {point.description}
-                          </div>
+                    <li key={index} className="route-point-li">
+                      <button
+                        type="button"
+                        className="route-point-item"
+                        onClick={() => openPointModal(activeRoute, day.title, point, index)}
+                      >
+                        {point.time && (
+                          <span className="route-point-time">
+                            {point.time}
+                          </span>
                         )}
-                      </div>
+                        <div className="route-point-main">
+                          <div className="route-point-title">{point.title}</div>
+                          {point.description && (
+                            <div className="route-point-description">{point.description}</div>
+                          )}
+                        </div>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -729,17 +651,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               >
                 ✕
               </button>
-              <div className="point-modal-title">
-                {activePoint.point.title}
-              </div>
+              <div className="point-modal-title">{activePoint.point.title}</div>
               {activePoint.point.time && (
-                <div className="point-modal-time">
-                  {activePoint.point.time}
-                </div>
+                <div className="point-modal-time">{activePoint.point.time}</div>
               )}
-              <div className="point-modal-day">
-                {activePoint.dayTitle}
-              </div>
+              <div className="point-modal-day">{activePoint.dayTitle}</div>
             </div>
 
             {pointImages.length > 0 && (
@@ -788,29 +704,24 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 {wikiInfo.loading && <div>Загружаем описание…</div>}
                 {wikiInfo.error && (
                   <div>
-                    Не удалось загрузить описание с Википедии. Попробуйте
-                    позже или загляните на карту.
+                    Не удалось загрузить описание с Википедии. Попробуйте позже или загляните на карту.
                   </div>
                 )}
-                {!wikiInfo.loading &&
-                  !wikiInfo.error &&
-                  wikiInfo.extract && (
-                    <>
-                      <div className="point-modal-wiki-extract">
-                        {wikiInfo.extract}
-                      </div>
-                      {wikiInfo.url && (
-                        <a
-                          href={wikiInfo.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="point-modal-wiki-link"
-                        >
-                          Открыть статью в Википедии
-                        </a>
-                      )}
-                    </>
-                  )}
+                {!wikiInfo.loading && !wikiInfo.error && wikiInfo.extract && (
+                  <>
+                    <div className="point-modal-wiki-extract">{wikiInfo.extract}</div>
+                    {wikiInfo.url && (
+                      <a
+                        href={wikiInfo.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="point-modal-wiki-link"
+                      >
+                        Открыть статью в Википедии
+                      </a>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -823,22 +734,17 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             type="button"
             key={route.id}
             className={
-              activeRoute?.id === route.id
-                ? 'route-card route-card-active'
-                : 'route-card'
+              activeRoute?.id === route.id ? 'route-card route-card-active' : 'route-card'
             }
             onClick={() => handleSelectRoute(route)}
           >
-            <div className="route-header">
-              <h3>{route.title}</h3>
+            <div className="route-card-header">
+              <div className="route-card-title">{route.title}</div>
               <div className="route-days">
-                {route.daysCount}{' '}
-                {declension('день', 'дня', 'дней', route.daysCount)}
+                {route.daysCount} {declension('день', 'дня', 'дней', route.daysCount)}
               </div>
             </div>
-            <div className="route-desc">
-              {route.shortDescription}
-            </div>
+            <div className="route-desc">{route.shortDescription}</div>
           </button>
         ))}
       </div>

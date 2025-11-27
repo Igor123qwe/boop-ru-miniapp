@@ -1,179 +1,217 @@
-/* Корневой блок страницы */
 .popular-routes-page {
-  padding: 16px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #111;
+  min-height: 100vh;
+  padding: 16px 16px 24px;
+  background: radial-gradient(circle at top, #f5f7ff 0, #f3f4f6 45%, #eef1f7 100%);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Roboto', sans-serif;
+  color: #111827;
+  box-sizing: border-box;
 }
 
-/* Кнопка "назад" */
-.back-btn {
+/* HEADER */
+
+.pr-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.pr-back-btn {
   border: none;
-  background: transparent;
-  padding: 0;
-  margin-bottom: 12px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 999px;
+  padding: 6px 12px;
   font-size: 14px;
   cursor: pointer;
-  color: #555;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #111827;
+  transition: background 0.15s ease, transform 0.1s ease;
 }
 
-.back-btn:hover {
-  color: #000;
+.pr-back-btn:active {
+  transform: scale(0.96);
+  background: rgba(15, 23, 42, 0.12);
 }
 
-/* Заголовок страницы */
-.page-title {
-  margin: 0 0 12px;
+.pr-header-main h2 {
+  margin: 0;
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-/* Описание маршрута */
-.route-desc {
-  margin: 0 0 12px;
-  font-size: 14px;
-  color: #555;
+.pr-header-city {
+  margin-top: 2px;
+  font-size: 13px;
+  color: #6b7280;
 }
 
-/* Фильтры над списком маршрутов */
-.route-filters {
-  margin-bottom: 16px;
-  padding: 12px;
-  border-radius: 12px;
-  background: #f7f7f7;
-}
+/* FILTERS */
 
-.route-filters-row {
+.pr-filters {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
+  padding: 12px 12px 8px;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(12px);
+  margin-bottom: 14px;
   display: flex;
-  gap: 12px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pr-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pr-filter-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.pr-segmented {
+  display: flex;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
-.route-filter-label {
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-  color: #666;
+.pr-segmented-btn {
   flex: 1;
-  min-width: 120px;
-}
-
-.route-filter-label--full {
-  flex: 1 1 100%;
-}
-
-.route-filter-select {
-  margin-top: 4px;
-  padding: 6px 8px;
+  min-width: 0;
   border-radius: 999px;
-  border: 1px solid #ddd;
-  font-size: 14px;
-  background: #fff;
+  border: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: #f3f4f6;
+  color: #4b5563;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.route-slider-row {
+.pr-segmented-btn.active {
+  background: linear-gradient(135deg, #ff4d67, #ff7a45);
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(248, 113, 113, 0.5);
+}
+
+.pr-range-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 10px;
 }
 
-.route-filter-range {
+.pr-range-row input[type='range'] {
   flex: 1;
 }
 
-.route-slider-value {
-  font-size: 13px;
-  color: #444;
+.pr-range-value {
+  font-size: 12px;
+  color: #4b5563;
 }
 
-/* Плашка, когда нет маршрутов */
-.empty-state {
-  margin-top: 16px;
-  font-size: 14px;
-  color: #777;
-}
+/* ACTIONS */
 
-/* Список маршрутов */
-.routes-list {
+.pr-actions-row {
   display: flex;
-  flex-direction: column;
   gap: 8px;
+  margin: 10px 0 14px;
 }
 
-.route-card-btn {
-  width: 100%;
-  text-align: left;
-  border-radius: 12px;
-  padding: 12px;
-  border: 1px solid #eee;
-  background: #fff;
+.pr-create-route-btn,
+.pr-share-route-btn {
+  flex: 1;
+  border-radius: 999px;
+  border: none;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
-.route-card-btn:hover {
-  background: #fafafa;
+.pr-create-route-btn {
+  background: linear-gradient(135deg, #111827, #1f2937);
+  color: #fff;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.4);
 }
 
-.route-header {
+.pr-share-route-btn {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid rgba(156, 163, 175, 0.4);
+}
+
+.pr-create-route-btn:active,
+.pr-share-route-btn:active {
+  transform: scale(0.97);
+}
+
+/* ROUTE DETAIL CARD */
+
+.route-detail-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 14px 14px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
+.route-detail-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
-.route-header h3 {
+.route-detail-header h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
 }
 
-.route-days {
+.route-detail-subtitle {
   font-size: 13px;
-  padding: 3px 8px;
+  color: #6b7280;
+  padding: 4px 10px;
   border-radius: 999px;
-  background: #f1f1f1;
+  background: #f3f4f6;
 }
 
-.route-desc {
-  font-size: 13px;
-  color: #555;
-}
-
-/* Карусель главной картинки маршрута */
 .route-main-carousel {
-  position: relative;
-  margin: 12px 0;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #e9e9e9;
-  /* фиксируем пропорции, а не жёсткую высоту */
-  aspect-ratio: 16 / 9;
+  margin-bottom: 10px;
 }
 
-/* сама картинка – растягиваем по блоку */
+.route-main-carousel-inner {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
 .route-main-carousel-image {
   width: 100%;
-  height: 100%;
+  height: 180px;
   object-fit: cover;
   display: block;
 }
 
-/* стрелки карусели */
 .route-main-carousel-btn {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   border: none;
-  width: 32px;
-  height: 32px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.85);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  font-size: 14px;
   cursor: pointer;
-  font-size: 16px;
 }
 
 .route-main-carousel-btn.left {
@@ -184,266 +222,265 @@
   right: 8px;
 }
 
-.route-main-carousel-btn:hover {
-  background: #fff;
-}
-
-/* Метаданные маршрута */
 .route-detail-meta {
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: #f7f7f7;
-  font-size: 13px;
-  color: #444;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #4b5563;
+  margin-bottom: 10px;
 }
 
-/* Кнопка открытия Яндекс.Карт */
-.route-open-map-btn {
-  width: 100%;
-  border-radius: 999px;
-  border: none;
-  padding: 10px 14px;
-  font-size: 14px;
-  font-weight: 500;
-  background: #000;
-  color: #fff;
-  cursor: pointer;
-  margin-bottom: 16px;
-}
+/* DAYS & POINTS */
 
-.route-open-map-btn:hover {
-  background: #222;
-}
-
-/* Дни маршрута */
 .route-days-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-bottom: 16px;
 }
 
 .route-day-block {
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid #f0f0f0;
-  background: #fff;
+  padding: 10px 10px 10px 12px;
+  border-radius: 16px;
+  background: #f9fafb;
+}
+
+.route-day-header {
+  margin-bottom: 6px;
 }
 
 .route-day-title {
+  font-size: 14px;
   font-weight: 600;
-  margin-bottom: 4px;
 }
 
-.route-day-text {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: #555;
+.route-day-description {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
 }
 
-/* Точки внутри дня */
-.route-points {
+.route-points-list {
   list-style: none;
-  padding: 0;
   margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.route-point {
+.route-point-li {
+  margin: 0;
+  padding: 0;
+}
+
+/* КЛИКАБЕЛЬНЫЙ ПУНКТ – КАК ЧИП / CARD-LINE */
+
+.route-point-item {
+  width: 100%;
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 0;
-  border-top: 1px solid #f2f2f2;
-}
-
-.route-point:first-child {
-  border-top: none;
-}
-
-.route-point-clickable {
+  border-radius: 999px;
+  border: none;
+  padding: 7px 10px;
+  background: #ffffff;
   cursor: pointer;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.07);
+  text-align: left;
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
-.route-point-clickable:hover {
-  background: #fafafa;
+.route-point-item:active {
+  transform: scale(0.97);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
 }
 
 .route-point-time {
-  flex: 0 0 48px;
   font-size: 12px;
-  color: #777;
+  font-weight: 600;
+  color: #f97373;
+  min-width: 40px;
 }
 
 .route-point-main {
   flex: 1;
-  min-width: 0;
 }
 
 .route-point-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
 }
 
 .route-point-description {
-  font-size: 13px;
-  color: #555;
-}
-
-/* Встроенная карта снизу */
-.route-detail-map {
-  margin-top: 16px;
-  border-radius: 12px;
-  overflow: hidden;
-  height: 220px;
-}
-
-/* ===== МОДАЛКА ТОЧКИ ===== */
-
-.route-point-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 999;
-}
-
-.route-point-modal {
-  width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
-  background: #fff;
-  border-radius: 16px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Шапка модалки */
-.route-point-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.route-point-modal-text {
-  flex: 1;
-}
-
-.route-point-modal-day {
-  font-size: 12px;
-  color: #777;
-}
-
-.route-point-modal-title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.route-point-modal-time {
-  font-size: 13px;
-  color: #555;
+  font-size: 11px;
+  color: #6b7280;
   margin-top: 2px;
 }
 
-/* Кнопка закрытия */
-.route-point-modal-close {
+/* MODAL */
+
+.point-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 16px;
+  z-index: 50;
+}
+
+.point-modal {
+  width: 100%;
+  max-width: 480px;
+  background: #ffffff;
+  border-radius: 24px 24px 18px 18px;
+  padding: 14px 14px 16px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.5);
+}
+
+.point-modal-header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 4px;
+  margin-bottom: 10px;
+}
+
+.point-modal-close {
+  grid-row: 1 / span 2;
   border: none;
-  background: transparent;
-  font-size: 18px;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  background: #f3f4f6;
   cursor: pointer;
 }
 
-/* Карусель фото внутри модалки */
-.route-point-carousel {
-  position: relative;
-  margin-bottom: 8px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #f0f0f0;
-  aspect-ratio: 4 / 3;
+.point-modal-title {
+  font-size: 15px;
+  font-weight: 600;
 }
 
-.route-point-carousel-image {
+.point-modal-time {
+  font-size: 12px;
+  color: #f97373;
+}
+
+.point-modal-day {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.point-modal-carousel {
+  margin-bottom: 10px;
+}
+
+.point-modal-carousel-inner {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.point-modal-image {
   width: 100%;
-  height: 100%;
+  height: 200px;
   object-fit: cover;
   display: block;
 }
 
-.route-point-carousel-btn {
+.point-modal-carousel-btn {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
+  border-radius: 999px;
   border: none;
   width: 28px;
   height: 28px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
   cursor: pointer;
-  font-size: 14px;
 }
 
-.route-point-carousel-btn.left {
-  left: 6px;
+.point-modal-carousel-btn.left {
+  left: 8px;
 }
 
-.route-point-carousel-btn.right {
-  right: 6px;
+.point-modal-carousel-btn.right {
+  right: 8px;
 }
 
-.route-point-carousel-btn:hover {
-  background: #fff;
-}
-
-/* Текст описания точки */
-.route-point-modal-description-block {
-  flex: 1;
-  overflow: auto;
-  margin-bottom: 8px;
-}
-
-.route-point-modal-description {
-  font-size: 14px;
-  color: #333;
-  margin: 0 0 4px;
-}
-
-.route-point-modal-description--muted {
-  color: #777;
-  font-style: italic;
-}
-
-.route-point-modal-source {
-  display: inline-block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: #0077ff;
-  text-decoration: none;
-}
-
-.route-point-modal-source:hover {
-  text-decoration: underline;
-}
-
-/* Кнопка "Добавить фото" */
-.route-point-add-photo-btn {
+.point-modal-add-photo-btn {
+  width: 100%;
   border-radius: 999px;
-  border: 1px solid #ddd;
+  border: none;
   padding: 8px 12px;
-  font-size: 14px;
-  background: #fafafa;
+  background: #f9fafb;
+  font-size: 13px;
   cursor: pointer;
-  margin-top: 4px;
+  margin-bottom: 10px;
 }
 
-.route-point-add-photo-btn:hover {
-  background: #f2f2f2;
+.point-modal-wiki {
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.point-modal-wiki-extract {
+  margin-bottom: 6px;
+}
+
+.point-modal-wiki-link {
+  font-size: 12px;
+  color: #2563eb;
+}
+
+/* ROUTES LIST */
+
+.routes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.route-card {
+  border-radius: 18px;
+  border: none;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.95);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.route-card-active {
+  background: linear-gradient(135deg, #ff4d67, #ff7a45);
+  color: #ffffff;
+  box-shadow: 0 16px 36px rgba(248, 113, 113, 0.6);
+}
+
+.route-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.route-card-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.route-days {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.route-desc {
+  font-size: 12px;
+  opacity: 0.9;
 }
