@@ -41,6 +41,45 @@ type WikiInfoState = {
 const TEST_IMAGE_URL =
   'https://upload.wikimedia.org/wikipedia/commons/6/6c/Konigsberg_Cathedral_2012_1.jpg'
 
+// 🔑 Ключ Pixabay (у тебя уже рабочий)
+const PIXABAY_API_KEY = '12092649-81b01f27ff917e1832098ab3e'
+
+// ===== Загрузка фото с Pixabay по текстовому запросу =====
+const loadPixabayImages = async (query: string): Promise<string[]> => {
+  const trimmed = query.trim()
+  if (!trimmed) return []
+
+  try {
+    const params = new URLSearchParams({
+      key: PIXABAY_API_KEY,
+      q: trimmed,
+      image_type: 'photo',
+      per_page: '5',
+      safesearch: 'true',
+      orientation: 'horizontal',
+    })
+
+    const url = `https://pixabay.com/api/?${params.toString()}`
+    const res = await fetch(url)
+
+    if (!res.ok) {
+      console.error('Pixabay HTTP error:', res.status)
+      return []
+    }
+
+    const data = await res.json()
+    if (!Array.isArray(data.hits)) return []
+
+    // Берём нормальный размер
+    return data.hits
+      .map((h: any) => h.webformatURL as string | undefined)
+      .filter((u): u is string => Boolean(u))
+  } catch (e) {
+    console.error('Pixabay fetch error', e)
+    return []
+  }
+}
+
 // ===== Википедия только для текста =====
 const fetchWikiExtract = async (
   rawTitle: string
@@ -185,26 +224,42 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
   // открыть точку
-  const openPointModal = (
+  const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
     point: PopularRoute['days'][number]['points'][number],
     index: number
   ) => {
-    setActivePoint({
+    const state: ActivePointState = {
       routeId: route.id,
       routeTitle: route.title,
       dayTitle,
       pointIndex: index,
       point,
-    })
+    }
+
+    setActivePoint(state)
     setActiveImageIndex(0)
 
     // если у точки есть локальные картинки – используем их
     if (point.images && point.images.length > 0) {
       setPointImages(point.images)
+      return
+    }
+
+    // иначе сначала убираем старые
+    setPointImages([])
+
+    // пробуем загрузить с Pixabay
+    const titleForQuery = point.wikiTitle || point.title
+    const q = `${route.city || cityTitle} ${titleForQuery}`
+
+    const imgs = await loadPixabayImages(q)
+
+    if (imgs.length > 0) {
+      setPointImages(imgs)
     } else {
-      // иначе – запасная
+      // совсем ничего не нашли – ставим запасную
       setPointImages([TEST_IMAGE_URL])
     }
   }
@@ -304,7 +359,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }, [activePoint])
 
   // выбор маршрута – собираем картинки для верхнего слайдера
-  const handleSelectRoute = (route: PopularRoute) => {
+  const handleSelectRoute = async (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
 
@@ -324,12 +379,21 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       })
     })
 
-    // 3) если всё пусто – запасная
-    if (images.length === 0) {
-      images.push(TEST_IMAGE_URL)
+    if (images.length > 0) {
+      setRouteImages(images)
+      return
     }
 
-    setRouteImages(images)
+    // 3) если локальных нет – пробуем Pixabay по названию маршрута
+    setRouteImages([])
+    const q = `${route.city || cityTitle} ${route.title}`
+    const remoteImgs = await loadPixabayImages(q)
+
+    if (remoteImgs.length > 0) {
+      setRouteImages(remoteImgs)
+    } else {
+      setRouteImages([TEST_IMAGE_URL])
+    }
   }
 
   // === экран конкретного маршрута ===
