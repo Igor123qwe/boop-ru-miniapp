@@ -1,7 +1,6 @@
 // src/pages/TripsListPage.tsx
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import type { TripTemplate } from '../types'
-import { api } from '../api'
 import './TripsListPage.css'
 
 type Props = {
@@ -29,44 +28,25 @@ const CITY_MAP: Record<string, string> = {
   kazan: 'казань',
 }
 
+// Базовый URL для облака
+const CLOUD_BASE_URL =
+  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://storage.yandexcloud.net/progid-images'
+
+// Получить URL обложки города (city-cover.jpg в корне папки города)
+const getCityCoverUrl = (slug: string): string | null => {
+  const folder = CITY_MAP[slug]
+  if (!folder) return null
+
+  return `${CLOUD_BASE_URL}/${encodeURIComponent(folder)}/city-cover.jpg`
+}
+
 export const TripsListPage: React.FC<Props> = ({
   trips,
   onOpenTrip,
   onCreateTrip,
   onOpenPopular,
 }) => {
-  const [cityPhotos, setCityPhotos] = useState<Record<string, string | null>>({})
-
-  // Загружаем обложки городов из облака
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadCovers() {
-      for (const city of POPULAR_CITIES) {
-        const slug = city.id                       // kaliningrad / moscow ...
-        const cloudCity = CITY_MAP[slug]           // калининград / москва ...
-
-        if (!cloudCity) continue
-
-        // Берем фото дня 1 (обложку)
-        const photos = await api.getCityDayPhotos(cloudCity, 1)
-        const cover = photos[0] || null
-
-        if (!cancelled) {
-          setCityPhotos(prev => ({
-            ...prev,
-            [slug]: cover,
-          }))
-        }
-      }
-    }
-
-    loadCovers()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   return (
     <div className="home-page">
       {/* Блок "Создать маршрут" */}
@@ -86,20 +66,28 @@ export const TripsListPage: React.FC<Props> = ({
       <div className="section-title">Популярные направления</div>
       <div className="cards-grid">
         {POPULAR_CITIES.map(city => {
-          const cover = cityPhotos[city.id] // URL или null
+          const cover = getCityCoverUrl(city.id)
 
           return (
             <button
               key={city.id}
               type="button"
               className="city-card"
-              onClick={() => onOpenPopular(city.id)}
+              onClick={() => onOpenPopular(city.id)} // передаём slug
             >
               {cover ? (
                 <img
                   src={cover}
                   alt={city.name}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={e => {
+                    // если обложка не загрузилась — показываем серый фон
+                    e.currentTarget.style.display = 'none'
+                    const parent = e.currentTarget.parentElement
+                    if (parent) {
+                      parent.style.background = '#ddd'
+                    }
+                  }}
                 />
               ) : (
                 <div
