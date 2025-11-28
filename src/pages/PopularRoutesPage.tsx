@@ -139,6 +139,52 @@ type PlaceItem = {
   }
 }
 
+// 🔹 Вспомогательный хелпер: подготовить embed-URL Яндекса с метками
+const prepareYandexEmbed = (raw: string): string => {
+  // 1) если это обычная ссылка /maps/ → превращаем в /map-widget/v1/
+  let urlStr = raw.startsWith('https://yandex.ru/maps/')
+    ? raw.replace('https://yandex.ru/maps/', 'https://yandex.ru/map-widget/v1/')
+    : raw
+
+  try {
+    const url = new URL(urlStr)
+
+    // 2) Берём rtext (цепочка координат) и превращаем в pt с метками
+    const rtext = url.searchParams.get('rtext')
+    const alreadyHasPt = url.searchParams.has('pt')
+
+    if (rtext && !alreadyHasPt) {
+      // rtext = "54.7103,20.5101~54.7037,20.5153~..."
+      const pts = rtext
+        .split('~')
+        .map(s => s.trim())
+        .filter(Boolean)
+
+      if (pts.length > 0) {
+        // каждая точка → "lat,lon,pm2rdm" (красная метка)
+        const ptParam = pts.map(p => `${p},pm2rdm`).join('~')
+        url.searchParams.set('pt', ptParam)
+      }
+    }
+
+    return url.toString()
+  } catch {
+    // если вдруг не распарсили URL — отдаём как есть
+    return urlStr
+  }
+}
+
+// 🔹 Хелпер: получить URL для встраиваемой карты маршрута
+const getEmbedUrl = (route: PopularRoute): string | undefined => {
+  const embed = (route as any).yandexMapEmbedUrl as string | undefined
+  const plain = (route as any).yandexMapUrl as string | undefined
+
+  if (embed) return prepareYandexEmbed(embed)
+  if (plain) return prepareYandexEmbed(plain)
+
+  return undefined
+}
+
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
@@ -545,9 +591,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(0)
 
     const localImages: string[] = []
-    if (route.coverImage) localImages.push(route.coverImage)
-    if (Array.isArray(route.images) && route.images.length > 0) {
-      localImages.push(...route.images)
+    if ((route as any).coverImage) localImages.push((route as any).coverImage as string)
+    if (Array.isArray((route as any).images) && (route as any).images.length > 0) {
+      localImages.push(...((route as any).images as string[]))
     }
 
     const uniqLocal = Array.from(new Set(localImages))
@@ -561,8 +607,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const hasRouteInfo =
     typeof activeRoute?.daysCount !== 'undefined' ||
     typeof activeRoute?.distanceKm !== 'undefined' ||
-    typeof activeRoute?.estimatedBudget !== 'undefined' ||
-    typeof activeRoute?.season !== 'undefined'
+    typeof (activeRoute as any)?.estimatedBudget !== 'undefined' ||
+    typeof (activeRoute as any)?.season !== 'undefined'
 
   const handleClosePointModal = () => {
     setActivePoint(null)
@@ -844,10 +890,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 </div>
 
                 {/* Карта Яндекс сверху */}
-                {activeRoute.yandexMapEmbedUrl && (
+                {getEmbedUrl(activeRoute) && (
                   <div className="route-map-wrapper">
                     <iframe
-                      src={activeRoute.yandexMapEmbedUrl}
+                      src={getEmbedUrl(activeRoute)}
                       title="Маршрут на карте"
                       loading="lazy"
                       referrerPolicy="no-referrer-when-downgrade"
@@ -903,13 +949,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                     {typeof activeRoute.distanceKm !== 'undefined' && (
                       <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
                     )}
-                    {typeof activeRoute.estimatedBudget !== 'undefined' && (
+                    {typeof (activeRoute as any).estimatedBudget !== 'undefined' && (
                       <div>
-                        Ориентировочный бюджет: от {activeRoute.estimatedBudget} ₽
+                        Ориентировочный бюджет: от{' '}
+                        {(activeRoute as any).estimatedBudget} ₽
                       </div>
                     )}
-                    {activeRoute.season && (
-                      <div>Лучшее время: {activeRoute.season}</div>
+                    {(activeRoute as any).season && (
+                      <div>Лучшее время: {(activeRoute as any).season}</div>
                     )}
                   </div>
                 )}
@@ -959,9 +1006,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 </div>
 
                 {/* Кнопка открыть в Яндекс.Картах */}
-                {activeRoute.yandexMapUrl && (
+                {(activeRoute as any).yandexMapUrl && (
                   <a
-                    href={activeRoute.yandexMapUrl}
+                    href={(activeRoute as any).yandexMapUrl as string}
                     target="_blank"
                     rel="noreferrer"
                     className="pr-open-in-maps"
@@ -992,7 +1039,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               >
                 ✕
               </button>
-            <div className="point-modal-title">{activePoint.point.title}</div>
+              <div className="point-modal-title">{activePoint.point.title}</div>
               {activePoint.point.time && (
                 <div className="point-modal-time">{activePoint.point.time}</div>
               )}
