@@ -869,7 +869,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             </>
           )}
 
-          {/* ЕСЛИ МАРШРУТ ВЫБРАН — ОТДЕЛЬНЫЙ ЭКРАН С КАРТОЙ */}
+          {/* ЕСЛИ МАРШРУТ ВЫБРАН — ОТДЕЛЬНЫЙ ЭКРАН */}
           {activeRoute && (
             <div className="route-detail-page">
               <button
@@ -888,27 +888,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                     {declension('день', 'дня', 'дней', activeRoute.daysCount)}
                   </div>
                 </div>
-
-                {/* Карта Яндекс сверху */}
-                {getEmbedUrl(activeRoute) && (
-                  <div className="route-map-wrapper">
-                    <iframe
-                      src={getEmbedUrl(activeRoute)}
-                      title="Маршрут на карте"
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                      allowFullScreen
-                      style={{
-                        width: '100%',
-                        minHeight: '260px',
-                        border: 0,
-                        borderRadius: '16px',
-                        overflow: 'hidden',
-                        marginBottom: '16px',
-                      }}
-                    />
-                  </div>
-                )}
 
                 {/* Карусель обложек маршрута */}
                 {routeImages.length > 0 && (
@@ -1015,6 +994,27 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   >
                     Открыть маршрут в Яндекс.Картах
                   </a>
+                )}
+
+                {/* Карта Яндекс В САМОМ НИЗУ */}
+                {getEmbedUrl(activeRoute) && (
+                  <div className="route-map-wrapper">
+                    <iframe
+                      src={getEmbedUrl(activeRoute)}
+                      title="Маршрут на карте"
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      allowFullScreen
+                      style={{
+                        width: '100%',
+                        minHeight: '260px',
+                        border: 0,
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        marginTop: '16px',
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             </div>
