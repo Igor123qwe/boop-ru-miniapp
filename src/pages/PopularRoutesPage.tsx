@@ -122,6 +122,14 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
 
+// базовый URL для фоток из облака
+const CLOUD_BASE_URL =
+  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://storage.yandexcloud.net/progid-images'
+
+const getCityCoverUrl = (cityFolder: string): string =>
+  `${CLOUD_BASE_URL}/${encodeURIComponent(cityFolder)}/city-cover.jpg`
+
 // Тип "достопримечательность" в списке
 type PlaceItem = {
   id: string
@@ -204,6 +212,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   const cityTitle = routes[0]?.city ?? city
+
+  // имя папки города в бакете (нижний регистр, как в Object Storage: "калининград", "казань" и т.п.)
+  const cityFolder = cityTitle.trim().toLowerCase()
+  const cityCoverUrl = getCityCoverUrl(cityFolder)
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
@@ -364,13 +376,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     // смотрим в кэш фоток по этой точке
     const cached = pointPhotosCache[cacheKey] ?? []
 
+    // хелпер: склеиваем локальные, кэш и city-cover
+    const buildImages = (extra: string[] = []) => {
+      const all = [...baseImages, ...extra]
+      if (cityCoverUrl) all.push(cityCoverUrl)
+      return Array.from(new Set(all.filter(Boolean)))
+    }
+
     if (cached.length > 0) {
-      const merged = [...baseImages, ...cached].filter(Boolean)
-      const uniq = Array.from(new Set(merged))
-      setPointImages(uniq)
+      setPointImages(buildImages(cached))
     } else {
-      // пока не знаем про облако — показываем только локальные
-      setPointImages(baseImages)
+      // пока не знаем про облако — показываем локальные + city-cover
+      setPointImages(buildImages())
     }
 
     // если точка добавленная пользователем — дальше ничего не делаем (нет routeId/pointIndex в бэке)
@@ -432,10 +449,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             [cacheKey]: remotePhotos,
           }))
 
-          // объединяем локальные + удалённые
+          // объединяем локальные + удалённые + city-cover
           setPointImages(prev => {
-            const all = [...prev, ...remotePhotos].filter(Boolean)
-            return Array.from(new Set(all))
+            const all = [...prev, ...remotePhotos]
+            if (cityCoverUrl) all.push(cityCoverUrl)
+            return Array.from(new Set(all.filter(Boolean)))
           })
         } else if (data.status === 'pending') {
           if (attempt < 3) {
@@ -671,9 +689,15 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
 
     const uniqLocal = Array.from(new Set(localImages))
-    setRouteImages(uniqLocal)
 
-    if (uniqLocal.length > 0) {
+    // добавляем общую фотку города в список обложек
+    const routeImagesWithCover = cityCoverUrl
+      ? Array.from(new Set([...uniqLocal, cityCoverUrl]))
+      : uniqLocal
+
+    setRouteImages(routeImagesWithCover)
+
+    if (routeImagesWithCover.length > 0) {
       setMainImageIndex(0)
     }
   }
