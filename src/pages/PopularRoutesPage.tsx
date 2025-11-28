@@ -185,6 +185,9 @@ const getEmbedUrl = (route: PopularRoute): string | undefined => {
   return undefined
 }
 
+// Тип точки маршрута, чтобы использовать в extraPoints
+type RoutePoint = PopularRoute['days'][number]['points'][number]
+
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
@@ -238,6 +241,15 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   // активная «вкладка» под кнопками
   const [viewMode, setViewMode] = useState<ViewMode>('places')
 
+  // скрытые штатные точки маршрута: dayIndex -> массив индексов точек
+  const [hiddenPoints, setHiddenPoints] = useState<Record<number, number[]>>({})
+
+  // дополнительные точки, которые пользователь добавил: dayIndex -> массив точек
+  const [extraPoints, setExtraPoints] = useState<Record<number, RoutePoint[]>>({})
+
+  // открыт ли блок "добавить место"
+  const [isAddPlaceOpen, setIsAddPlaceOpen] = useState(false)
+
   // сброс всего при смене активного маршрута
   useEffect(() => {
     if (!activeRoute) {
@@ -253,6 +265,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         url: null,
       })
       setIsWikiVisible(false)
+      setHiddenPoints({})
+      setExtraPoints({})
+      setIsAddPlaceOpen(false)
     }
   }, [activeRoute])
 
@@ -334,7 +349,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     },
     index: number
   ) => {
-    const cacheKey = `${route.id}_${index}`
+    // index < 0 — это добавленная пользователем точка, для неё не ходим в бэкенд за фото
+    const isExtra = index < 0
+    const cacheKey = isExtra ? `extra_${route.id}_${Math.abs(index)}` : `${route.id}_${index}`
 
     // запоминаем маршрут
     setActiveRoute(route)
@@ -360,6 +377,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     } else {
       // пока не знаем про облако — показываем только локальные (или заглушку)
       setPointImages(baseImages.length > 0 ? baseImages : [TEST_IMAGE_URL])
+    }
+
+    // если точка добавленная пользователем — дальше ничего не делаем (нет routeId/pointIndex в бэке)
+    if (isExtra) {
+      setWikiInfo({
+        loading: true,
+        error: false,
+        extract: null,
+        url: null,
+      })
+      setIsWikiVisible(true)
+      return
     }
 
     // если уже есть в кэше — парсер/бекенд больше не трогаем
@@ -502,6 +531,56 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
+  // удалить штатную точку (крестик справа)
+  const handleRemovePoint = (dayIndex: number, pointIndex: number) => {
+    setHiddenPoints(prev => {
+      const prevArr = prev[dayIndex] ?? []
+      if (prevArr.includes(pointIndex)) return prev
+      return {
+        ...prev,
+        [dayIndex]: [...prevArr, pointIndex],
+      }
+    })
+  }
+
+  // удалить добавленную точку
+  const handleRemoveExtraPoint = (dayIndex: number, extraIndex: number) => {
+    setExtraPoints(prev => {
+      const dayExtras = prev[dayIndex] ?? []
+      const newExtras = dayExtras.filter((_, idx) => idx !== extraIndex)
+      const next: Record<number, RoutePoint[]> = { ...prev }
+      if (newExtras.length === 0) {
+        delete next[dayIndex]
+      } else {
+        next[dayIndex] = newExtras
+      }
+      return next
+    })
+  }
+
+  // добавить место из общего списка в маршрут (в конец последнего дня)
+  const handleAddPlaceToRoute = (place: PlaceItem) => {
+    if (!activeRoute) return
+    const dayIndex = activeRoute.days.length - 1
+
+    const newPoint: RoutePoint = {
+      title: place.point.title,
+      description: place.point.description,
+      time: place.point.time,
+      images: place.point.images,
+    }
+
+    setExtraPoints(prev => {
+      const dayExtras = prev[dayIndex] ?? []
+      return {
+        ...prev,
+        [dayIndex]: [...dayExtras, newPoint],
+      }
+    })
+
+    setIsAddPlaceOpen(false)
+  }
+
   const showPrevImage = () => {
     if (pointImages.length === 0) return
     setActiveImageIndex(prev => {
@@ -589,6 +668,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const handleSelectRoute = (route: PopularRoute) => {
     setActiveRoute(route)
     setMainImageIndex(0)
+    setHiddenPoints({})
+    setExtraPoints({})
+    setIsAddPlaceOpen(false)
 
     const localImages: string[] = []
     if ((route as any).coverImage) localImages.push((route as any).coverImage as string)
@@ -621,6 +703,27 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       url: null,
     })
     setIsWikiVisible(false)
+  }
+
+  // Отправить текущий (подредактированный) маршрут в «Мои поездки»
+  const handleSendToMyTrips = () => {
+    if (!webApp || !activeRoute) return
+
+    const payload = {
+      type: 'save_route_to_trips',
+      city: cityTitle,
+      routeId: activeRoute.id,
+      hiddenPoints,
+      extraPoints,
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert('Маршрут будет сохранён в "Мои поездки" при запуске мини-приложения в Telegram.')
+    }
   }
 
   return (
@@ -923,6 +1026,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 )}
 
+                {/* Карта Яндекс — внизу страницы, перед кнопкой "Отправить" */}
                 {hasRouteInfo && (
                   <div className="route-detail-meta">
                     {typeof activeRoute.distanceKm !== 'undefined' && (
@@ -942,61 +1046,155 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
                 {/* Дни и точки маршрута */}
                 <div className="route-days-list">
-                  {activeRoute.days.map((day, dayIndex) => (
-                    <div key={dayIndex} className="route-day-block">
-                      <div className="route-day-header">
-                        <div className="route-day-title">{day.title}</div>
-                        {day.description && (
-                          <div className="route-day-description">
-                            {day.description}
-                          </div>
-                        )}
-                      </div>
+                  {activeRoute.days.map((day, dayIndex) => {
+                    const hiddenForDay = hiddenPoints[dayIndex] ?? []
+                    const dayExtra = extraPoints[dayIndex] ?? []
 
-                      <ul className="route-points-list">
-                        {day.points.map((point, index) => (
-                          <li key={index} className="route-point-li">
-                            <button
-                              type="button"
-                              className="route-point-item"
-                              onClick={() =>
-                                openPointModal(activeRoute, day.title, point, index)
-                              }
-                            >
-                              {point.time && (
-                                <span className="route-point-time">{point.time}</span>
-                              )}
-                              <div className="route-point-main">
-                                <div className="route-point-title">
-                                  {point.title}
-                                </div>
-                                {point.description && (
-                                  <div className="route-point-description">
-                                    {point.description}
+                    return (
+                      <div key={dayIndex} className="route-day-block">
+                        <div className="route-day-header">
+                          <div className="route-day-title">{day.title}</div>
+                          {day.description && (
+                            <div className="route-day-description">
+                              {day.description}
+                            </div>
+                          )}
+                        </div>
+
+                        <ul className="route-points-list">
+                          {day.points.map((point, index) => {
+                            if (hiddenForDay.includes(index)) return null
+
+                            return (
+                              <li key={index} className="route-point-li">
+                                <button
+                                  type="button"
+                                  className="route-point-item"
+                                  onClick={() =>
+                                    openPointModal(
+                                      activeRoute,
+                                      day.title,
+                                      point,
+                                      index
+                                    )
+                                  }
+                                >
+                                  {point.time && (
+                                    <span className="route-point-time">
+                                      {point.time}
+                                    </span>
+                                  )}
+                                  <div className="route-point-main">
+                                    <div className="route-point-title">
+                                      {point.title}
+                                    </div>
+                                    {point.description && (
+                                      <div className="route-point-description">
+                                        {point.description}
+                                      </div>
+                                    )}
                                   </div>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="route-point-remove-btn"
+                                  onClick={() =>
+                                    handleRemovePoint(dayIndex, index)
+                                  }
+                                >
+                                  ✕
+                                </button>
+                              </li>
+                            )
+                          })}
+
+                          {/* Добавленные пользователем точки этого дня */}
+                          {dayExtra.map((point, exIndex) => (
+                            <li
+                              key={`extra-${exIndex}`}
+                              className="route-point-li route-point-li-extra"
+                            >
+                              <button
+                                type="button"
+                                className="route-point-item"
+                                onClick={() =>
+                                  openPointModal(
+                                    activeRoute,
+                                    day.title,
+                                    point,
+                                    -1 - exIndex // отрицательный индекс, чтобы не ходить в бэк
+                                  )
+                                }
+                              >
+                                {point.time && (
+                                  <span className="route-point-time">
+                                    {point.time}
+                                  </span>
                                 )}
-                              </div>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                                <div className="route-point-main">
+                                  <div className="route-point-title">
+                                    {point.title}
+                                  </div>
+                                  {point.description && (
+                                    <div className="route-point-description">
+                                      {point.description}
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="route-point-remove-btn"
+                                onClick={() =>
+                                  handleRemoveExtraPoint(dayIndex, exIndex)
+                                }
+                              >
+                                ✕
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })}
                 </div>
 
-                {/* Кнопка открыть в Яндекс.Картах */}
-                {(activeRoute as any).yandexMapUrl && (
-                  <a
-                    href={(activeRoute as any).yandexMapUrl as string}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="pr-open-in-maps"
+                {/* Добавить новое место */}
+                <div className="route-add-place-block">
+                  <button
+                    type="button"
+                    className="route-add-place-toggle"
+                    onClick={() => setIsAddPlaceOpen(prev => !prev)}
                   >
-                    Открыть маршрут в Яндекс.Картах
-                  </a>
-                )}
+                    + Добавить место в маршрут
+                  </button>
 
-                {/* Карта Яндекс В САМОМ НИЗУ */}
+                  {isAddPlaceOpen && (
+                    <div className="route-add-place-list">
+                      {visiblePlaces.map(place => (
+                        <button
+                          key={`add-${place.id}`}
+                          type="button"
+                          className="route-add-place-item"
+                          onClick={() => handleAddPlaceToRoute(place)}
+                        >
+                          <div className="route-add-place-title">
+                            {place.point.title}
+                          </div>
+                          {place.point.description && (
+                            <div className="route-add-place-subtitle">
+                              {place.point.description}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Карта Яндекс — в самом низу карточки маршрута */}
                 {getEmbedUrl(activeRoute) && (
                   <div className="route-map-wrapper">
                     <iframe
@@ -1012,10 +1210,31 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                         borderRadius: '16px',
                         overflow: 'hidden',
                         marginTop: '16px',
+                        marginBottom: '16px',
                       }}
                     />
                   </div>
                 )}
+
+                {(activeRoute as any).yandexMapUrl && (
+                  <a
+                    href={(activeRoute as any).yandexMapUrl as string}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="pr-open-in-maps"
+                  >
+                    Открыть маршрут в Яндекс.Картах
+                  </a>
+                )}
+
+                {/* Кнопка в "Мои поездки" */}
+                <button
+                  type="button"
+                  className="route-send-to-trips-btn"
+                  onClick={handleSendToMyTrips}
+                >
+                  Отправить в мои поездки
+                </button>
               </div>
             </div>
           )}
