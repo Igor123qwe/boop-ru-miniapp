@@ -67,9 +67,6 @@ type WikiState = {
   url: string | null
 }
 
-// локальная заглушка, если ничего нет
-const TEST_IMAGE_URL = '/images/placeholder.jpg'
-
 // ===== Википедия для описаний =====
 const fetchWikiExtract = async (
   rawTitle: string
@@ -368,12 +365,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     const cached = pointPhotosCache[cacheKey] ?? []
 
     if (cached.length > 0) {
-      const merged = [...baseImages, ...cached]
+      const merged = [...baseImages, ...cached].filter(Boolean)
       const uniq = Array.from(new Set(merged))
-      setPointImages(uniq.length > 0 ? uniq : [TEST_IMAGE_URL])
+      setPointImages(uniq)
     } else {
-      // пока не знаем про облако — показываем только локальные (или заглушку)
-      setPointImages(baseImages.length > 0 ? baseImages : [TEST_IMAGE_URL])
+      // пока не знаем про облако — показываем только локальные
+      setPointImages(baseImages)
     }
 
     // если точка добавленная пользователем — дальше ничего не делаем (нет routeId/pointIndex в бэке)
@@ -437,22 +434,20 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
           // объединяем локальные + удалённые
           setPointImages(prev => {
-            const all = [...prev, ...remotePhotos]
-            const uniq = Array.from(new Set(all))
-            return uniq.length > 0 ? uniq : [TEST_IMAGE_URL]
+            const all = [...prev, ...remotePhotos].filter(Boolean)
+            return Array.from(new Set(all))
           })
         } else if (data.status === 'pending') {
           if (attempt < 3) {
             setTimeout(() => fetchFromBackend(attempt + 1), 2000)
-          } else {
-            setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
           }
+          // если pending и попытки закончились — просто оставляем, что было
         } else {
-          setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
+          // статус не done и не pending — оставляем текущие картинки как есть
         }
       } catch (e) {
         console.error('photos api error', e)
-        setPointImages(prev => (prev.length > 0 ? prev : [TEST_IMAGE_URL]))
+        // при ошибке не затираем существующие фотки
       }
     }
 
@@ -676,7 +671,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
 
     const uniqLocal = Array.from(new Set(localImages))
-    setRouteImages(uniqLocal.length > 0 ? uniqLocal : [TEST_IMAGE_URL])
+    setRouteImages(uniqLocal)
 
     if (uniqLocal.length > 0) {
       setMainImageIndex(0)
@@ -1007,7 +1002,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                         alt={activeRoute.title}
                         className="route-main-carousel-image"
                         onError={e => {
-                          e.currentTarget.src = TEST_IMAGE_URL
+                          // если обложка не загрузилась — скрываем элемент
+                          e.currentTarget.style.display = 'none'
                         }}
                       />
                       {routeImages.length > 1 && (
@@ -1279,7 +1275,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                     alt={activePoint.point.title}
                     className="point-modal-image"
                     onError={e => {
-                      e.currentTarget.src = TEST_IMAGE_URL
+                      e.currentTarget.style.display = 'none'
                     }}
                   />
                   {pointImages.length > 1 && (
