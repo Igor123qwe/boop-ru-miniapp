@@ -428,10 +428,24 @@ input[type='range']::-moz-range-thumb {
   margin: 0;
 }
 
+/* строка точки + крестик */
+.route-point-li {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  transition: transform 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+}
+
 .route-point-li + .route-point-li {
   margin-top: 4px;
 }
 
+/* лёгкий отклик по нажатию */
+.route-point-li:active .route-point-item {
+  transform: scale(0.99);
+}
+
+/* сама плашка точки */
 .route-point-item {
   width: 100%;
   border-radius: 10px;
@@ -442,7 +456,7 @@ input[type='range']::-moz-range-thumb {
   align-items: flex-start;
   background: #ffffff;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, transform 0.12s ease;
 }
 
 .route-point-item:hover {
@@ -468,6 +482,159 @@ input[type='range']::-moz-range-thumb {
 .route-point-description {
   font-size: 12px;
   color: #6b7280;
+}
+
+/* Крестик удаления точки */
+.route-point-remove-btn {
+  align-self: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: none;
+  width: 24px;
+  height: 24px;
+  margin-left: 2px;
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.route-point-remove-btn:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.route-point-remove-btn:active {
+  transform: scale(0.92);
+}
+
+/* Дополнительные точки, добавленные пользователем */
+.route-point-li-extra .route-point-item {
+  background: #ecfdf5;
+  border: 1px dashed rgba(16, 185, 129, 0.4);
+}
+
+.route-point-li-extra .route-point-item:hover {
+  background: #d1fae5;
+}
+
+/* ===== Блок "Добавить место в маршрут" ===== */
+
+.route-add-place-block {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.route-add-place-toggle {
+  border-radius: 999px;
+  border: none;
+  padding: 7px 12px;
+  font-size: 13px;
+  background: #f3f4ff;
+  color: #4338ca;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.route-add-place-toggle:hover {
+  background: #e0e7ff;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.25);
+}
+
+.route-add-place-list {
+  margin-top: 8px;
+  max-height: 220px;
+  padding: 6px;
+  border-radius: 14px;
+  background: #f9fafb;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.route-add-place-item {
+  border-radius: 999px;
+  border: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
+  text-align: left;
+  max-width: 100%;
+}
+
+.route-add-place-item:hover {
+  background: #eef2ff;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.18);
+}
+
+.route-add-place-title {
+  font-weight: 500;
+}
+
+.route-add-place-subtitle {
+  margin-top: 1px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* ===== Карта и кнопки под ней ===== */
+
+.route-map-wrapper {
+  margin-top: 8px;
+}
+
+.pr-open-in-maps {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.pr-open-in-maps::after {
+  content: '↗';
+  font-size: 11px;
+}
+
+.pr-open-in-maps:hover {
+  text-decoration: underline;
+}
+
+/* кнопка "Отправить в мои поездки" */
+.route-send-to-trips-btn {
+  margin-top: 12px;
+  width: 100%;
+  border-radius: 999px;
+  border: none;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(90deg, #0f172a, #1f2937);
+  color: #f9fafb;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.2);
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.route-send-to-trips-btn:hover {
+  background: linear-gradient(90deg, #020617, #0f172a);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.28);
 }
 
 /* ===== Модалка точки ===== */

@@ -308,8 +308,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return result
   }, [routes, sortMode, difficultyFilter, maxDaysFilter])
 
-  // ⚡ Список всех достопримечательностей края
-  // Считаем по ВСЕМ маршрутам города, НЕ завязано на фильтры.
+  // ⚡ Список всех достопримечательностей
   const visiblePlaces = useMemo<PlaceItem[]>(() => {
     const list: PlaceItem[] = []
     const usedTitles = new Set<string>()
@@ -319,8 +318,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         day.points.forEach((point, pointIdx) => {
           const keyTitle = (point.title || '').toLowerCase().trim()
           if (!keyTitle) return
-
-          // режем дубляжи по названию
           if (usedTitles.has(keyTitle)) return
           usedTitles.add(keyTitle)
 
@@ -1026,7 +1023,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 )}
 
-                {/* Карта Яндекс — внизу страницы, перед кнопкой "Отправить" */}
+                {/* Инфо по маршруту */}
                 {hasRouteInfo && (
                   <div className="route-detail-meta">
                     {typeof activeRoute.distanceKm !== 'undefined' && (
