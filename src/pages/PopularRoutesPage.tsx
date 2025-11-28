@@ -110,7 +110,7 @@ const fetchWikiExtract = async (
 
     return {
       extract,
-      url: url ?? `https://ru.wikipedia.org/wiki/${encodeURIComponent(foundTitle)}`,
+      url: url ?? `https://ru.wikipedia.org/wiki/${encodeURIComponent(foundTitle)}`
     }
   } catch {
     return null
@@ -122,7 +122,7 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
 
-// базовый URL для фоток из облака
+// базовый URL для фоток из облака (city cover)
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images'
@@ -159,14 +159,12 @@ const prepareYandexEmbed = (raw: string): string => {
     const alreadyHasPt = url.searchParams.has('pt')
 
     if (rtext && !alreadyHasPt) {
-      // rtext = "54.7103,20.5101~54.7037,20.5153~..."
       const pts = rtext
         .split('~')
         .map(s => s.trim())
         .filter(Boolean)
 
       if (pts.length > 0) {
-        // каждая точка → "lat,lon,pm2rdm" (красная метка)
         const ptParam = pts.map(p => `${p},pm2rdm`).join('~')
         url.searchParams.set('pt', ptParam)
       }
@@ -174,7 +172,6 @@ const prepareYandexEmbed = (raw: string): string => {
 
     return url.toString()
   } catch {
-    // если вдруг не распарсили URL — отдаём как есть
     return urlStr
   }
 }
@@ -237,7 +234,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     loading: false,
     error: false,
     extract: null,
-    url: null,
+    url: null
   })
 
   const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
@@ -271,7 +268,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         loading: false,
         error: false,
         extract: null,
-        url: null,
+        url: null
       })
       setIsWikiVisible(false)
       setHiddenPoints({})
@@ -335,7 +332,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             route,
             dayTitle: day.title,
             pointIndex: pointIdx,
-            point,
+            point
           })
         })
       })
@@ -366,7 +363,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setActivePoint({
       routeId: route.id,
       dayTitle,
-      point,
+      point
     })
     setActiveImageIndex(0)
 
@@ -376,17 +373,15 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     // смотрим в кэш фоток по этой точке
     const cached = pointPhotosCache[cacheKey] ?? []
 
-    // хелпер: склеиваем локальные, кэш и city-cover
     const buildImages = (extra: string[] = []) => {
       const all = [...baseImages, ...extra]
-      if (cityCoverUrl) all.push(cityCoverUrl)
       return Array.from(new Set(all.filter(Boolean)))
     }
 
     if (cached.length > 0) {
       setPointImages(buildImages(cached))
     } else {
-      // пока не знаем про облако — показываем локальные + city-cover
+      // пока не знаем про облако — показываем только локальные
       setPointImages(buildImages())
     }
 
@@ -396,7 +391,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         loading: true,
         error: false,
         extract: null,
-        url: null,
+        url: null
       })
       setIsWikiVisible(true)
       return
@@ -408,7 +403,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         loading: true,
         error: false,
         extract: null,
-        url: null,
+        url: null
       })
       setIsWikiVisible(true)
       return
@@ -419,7 +414,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       routeId: route.id,
       pointIndex: String(index),
       city: route.city || cityTitle,
-      title: point.title,
+      title: point.title
     })
 
     const fetchFromBackend = async (attempt: number) => {
@@ -446,13 +441,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           // обновляем кэш
           setPointPhotosCache(prev => ({
             ...prev,
-            [cacheKey]: remotePhotos,
+            [cacheKey]: remotePhotos
           }))
 
-          // объединяем локальные + удалённые + city-cover
+          // объединяем локальные + удалённые
           setPointImages(prev => {
             const all = [...prev, ...remotePhotos]
-            if (cityCoverUrl) all.push(cityCoverUrl)
             return Array.from(new Set(all.filter(Boolean)))
           })
         } else if (data.status === 'pending') {
@@ -476,7 +470,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       loading: true,
       error: false,
       extract: null,
-      url: null,
+      url: null
     })
     setIsWikiVisible(true)
   }
@@ -486,7 +480,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const payload = {
       type: 'start_custom_route',
-      city: cityTitle,
+      city: cityTitle
     }
 
     const data = JSON.stringify(payload)
@@ -505,7 +499,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const payload = {
       type: 'ai_route',
-      city: cityTitle,
+      city: cityTitle
     }
 
     const data = JSON.stringify(payload)
@@ -527,7 +521,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       city: activeRoute.city,
       dayTitle: activePoint.dayTitle,
       pointTitle: activePoint.point.title,
-      pointTime: activePoint.point.time ?? null,
+      pointTime: activePoint.point.time ?? null
     }
 
     const data = JSON.stringify(payload)
@@ -548,7 +542,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       if (prevArr.includes(pointIndex)) return prev
       return {
         ...prev,
-        [dayIndex]: [...prevArr, pointIndex],
+        [dayIndex]: [...prevArr, pointIndex]
       }
     })
   }
@@ -577,14 +571,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       title: place.point.title,
       description: place.point.description,
       time: place.point.time,
-      images: place.point.images,
+      images: place.point.images
     }
 
     setExtraPoints(prev => {
       const dayExtras = prev[dayIndex] ?? []
       return {
         ...prev,
-        [dayIndex]: [...dayExtras, newPoint],
+        [dayIndex]: [...dayExtras, newPoint]
       }
     })
 
@@ -623,7 +617,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         loading: false,
         error: false,
         extract: null,
-        url: null,
+        url: null
       })
       setIsWikiVisible(false)
       return
@@ -633,7 +627,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       loading: true,
       error: false,
       extract: null,
-      url: null,
+      url: null
     })
     setIsWikiVisible(true)
 
@@ -655,7 +649,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           loading: false,
           error: true,
           extract: null,
-          url: null,
+          url: null
         })
         return
       }
@@ -664,7 +658,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         loading: false,
         error: false,
         extract: data.extract,
-        url: data.url,
+        url: data.url
       })
     }
 
@@ -690,10 +684,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const uniqLocal = Array.from(new Set(localImages))
 
-    // добавляем общую фотку города в список обложек
-    const routeImagesWithCover = cityCoverUrl
-      ? Array.from(new Set([...uniqLocal, cityCoverUrl]))
-      : uniqLocal
+    // city-cover используем только как запасной вариант,
+    // если у маршрута вообще нет своих обложек
+    const routeImagesWithCover =
+      uniqLocal.length === 0 && cityCoverUrl
+        ? [cityCoverUrl]
+        : uniqLocal
 
     setRouteImages(routeImagesWithCover)
 
@@ -716,7 +712,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       loading: false,
       error: false,
       extract: null,
-      url: null,
+      url: null
     })
     setIsWikiVisible(false)
   }
@@ -730,7 +726,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       city: cityTitle,
       routeId: activeRoute.id,
       hiddenPoints,
-      extraPoints,
+      extraPoints
     }
 
     const data = JSON.stringify(payload)
@@ -1227,7 +1223,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                         borderRadius: '16px',
                         overflow: 'hidden',
                         marginTop: '16px',
-                        marginBottom: '16px',
+                        marginBottom: '16px'
                       }}
                     />
                   </div>
