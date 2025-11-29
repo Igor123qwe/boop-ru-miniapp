@@ -156,7 +156,6 @@ const loadCloudPointImages = async (
       cityFolder
     )}/${encodeURIComponent(routeId)}/point_${pointIndex}/image-${i}.jpg`
 
-    // проверяем по одной, чтобы не плодить битые изображения
     // eslint-disable-next-line no-await-in-loop
     const ok = await probeImageUrl(url)
     if (ok) {
@@ -165,6 +164,36 @@ const loadCloudPointImages = async (
   }
 
   return goodUrls
+}
+
+// Попробовать вытащить фотки из любого формата ответа бэка
+const extractPhotosFromApi = (data: any): string[] => {
+  if (!data || typeof data !== 'object') return []
+
+  const candidates: unknown[] = [
+    data.photos,
+    data.publicUrls,
+    data.urls,
+    data.images
+  ]
+
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      return c.filter((v): v is string => typeof v === 'string')
+    }
+  }
+
+  if (Array.isArray(data.items)) {
+    const collected: string[] = []
+    for (const it of data.items) {
+      if (!it || typeof it !== 'object') continue
+      if (typeof it.url === 'string') collected.push(it.url)
+      else if (typeof it.publicUrl === 'string') collected.push(it.publicUrl)
+    }
+    if (collected.length > 0) return collected
+  }
+
+  return []
 }
 
 // Тип "достопримечательность" в списке
@@ -183,15 +212,12 @@ type PlaceItem = {
 
 // 🔹 Вспомогательный хелпер: подготовить embed-URL Яндекса с метками
 const prepareYandexEmbed = (raw: string): string => {
-  // 1) если это обычная ссылка /maps/ → превращаем в /map-widget/v1/
   let urlStr = raw.startsWith('https://yandex.ru/maps/')
     ? raw.replace('https://yandex.ru/maps/', 'https://yandex.ru/map-widget/v1/')
     : raw
 
   try {
     const url = new URL(urlStr)
-
-    // 2) Берём rtext (цепочка координат) и превращаем в pt с метками
     const rtext = url.searchParams.get('rtext')
     const alreadyHasPt = url.searchParams.has('pt')
 
@@ -247,14 +273,15 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   const cityTitle = routes[0]?.city ?? city
 
-  // имя папки города в бакете (нижний регистр, как в Object Storage: "калининград", "казань" и т.п.)
+  // имя папки города в бакете
   const cityFolder = cityTitle.trim().toLowerCase()
   const cityCoverUrl = getCityCoverUrl(cityFolder)
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
   const [sortMode, setSortMode] = useState<SortMode>('popularity')
-  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all')
+  const [difficultyFilter, setDifficultyFilter] =
+    useState<DifficultyFilter>('all')
 
   const maxDaysAvailable =
     routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
@@ -284,13 +311,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   // активная «вкладка» под кнопками
   const [viewMode, setViewMode] = useState<ViewMode>('places')
 
-  // скрытые штатные точки маршрута: dayIndex -> массив индексов точек
+  // скрытые штатные точки маршрута
   const [hiddenPoints, setHiddenPoints] = useState<Record<number, number[]>>({})
 
-  // дополнительные точки, которые пользователь добавил: dayIndex -> массив точек
-  const [extraPoints, setExtraPoints] = useState<Record<number, RoutePoint[]>>({})
+  // дополнительные точки, которые пользователь добавил
+  const [extraPoints, setExtraPoints] = useState<Record<number, RoutePoint[]>>(
+    {}
+  )
 
-  // открыт ли блок "добавить место"
   const [isAddPlaceOpen, setIsAddPlaceOpen] = useState(false)
 
   // сброс всего при смене активного маршрута
@@ -389,7 +417,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     },
     index: number
   ) => {
-    // index < 0 — это добавленная пользователем точка, для неё не ходим в бэкенд за фото
     const isExtra = index < 0
     const cacheKey = isExtra
       ? `extra_${route.id}_${Math.abs(index)}`
@@ -420,11 +447,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (cached.length > 0) {
       setPointImages(buildImages(cached))
     } else {
-      // пока не знаем про облако/бэкенд — показываем только локальные
       setPointImages(buildImages())
     }
 
-    // если точка добавленная пользователем — дальше ничего не делаем (нет routeId/pointIndex в бэке)
+    // если точка добавленная пользователем — дальше ничего не делаем
     if (isExtra) {
       setWikiInfo({
         loading: true,
@@ -436,7 +462,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // если уже есть в кэше — парсер/бекенд больше не трогаем (но может быть ещё локальные картинки)
+    // если уже есть в кэше — бэк/облако не трогаем
     if (cached.length > 0) {
       setWikiInfo({
         loading: true,
@@ -448,7 +474,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // ---- запрос к бекенду (только если в кэше пусто) ----
+    // ---- запрос к бекенду ----
     const params = new URLSearchParams({
       routeId: route.id,
       pointIndex: String(index),
@@ -468,37 +494,28 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         }
 
         const data = await resp.json()
-        console.log('photos result:', data)
+        console.log('photos api result raw:', data)
 
-        if (
-          data.status === 'done' &&
-          Array.isArray(data.photos) &&
-          data.photos.length > 0
-        ) {
-          const remotePhotos: string[] = data.photos
+        const remotePhotos = extractPhotosFromApi(data)
 
-          // обновляем кэш
+        if (remotePhotos.length > 0) {
           setPointPhotosCache(prev => ({
             ...prev,
             [cacheKey]: remotePhotos
           }))
 
-          // объединяем локальные + удалённые
           setPointImages(prev => {
             const all = [...prev, ...remotePhotos]
             return Array.from(new Set(all.filter(Boolean)))
           })
-        } else if (data.status === 'pending') {
-          if (attempt < 3) {
-            setTimeout(() => fetchFromBackend(attempt + 1), 2000)
-          }
-          // если pending и попытки закончились — просто оставляем, что было
-        } else {
-          // статус не done и не pending — оставляем текущие картинки как есть
+          return
+        }
+
+        if (data.status === 'pending' && attempt < 3) {
+          setTimeout(() => fetchFromBackend(attempt + 1), 2000)
         }
       } catch (e) {
         console.error('photos api error', e)
-        // при ошибке не затираем существующие фотки
       }
     }
 
@@ -510,7 +527,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       .then(cloudPhotos => {
         if (!cloudPhotos || cloudPhotos.length === 0) return
 
-        // обновляем кэш
         setPointPhotosCache(prev => {
           const prevCached = prev[cacheKey] ?? []
           const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
@@ -520,7 +536,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           }
         })
 
-        // обновляем список картинок модалки
         setPointImages(prev => {
           const all = [...prev, ...cloudPhotos]
           return Array.from(new Set(all.filter(Boolean)))
@@ -530,7 +545,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         console.error('cloud photos load error', err)
       })
 
-    // --- Вики дальше обрабатываем в useEffect по activePoint ---
+    // Вики дальше обрабатываем в useEffect по activePoint
     setWikiInfo({
       loading: true,
       error: false,
@@ -600,7 +615,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     }
   }
 
-  // удалить штатную точку (крестик справа)
   const handleRemovePoint = (dayIndex: number, pointIndex: number) => {
     setHiddenPoints(prev => {
       const prevArr = prev[dayIndex] ?? []
@@ -612,7 +626,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
-  // удалить добавленную точку
   const handleRemoveExtraPoint = (dayIndex: number, extraIndex: number) => {
     setExtraPoints(prev => {
       const dayExtras = prev[dayIndex] ?? []
@@ -627,7 +640,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
   }
 
-  // добавить место из общего списка в маршрут (в конец последнего дня)
   const handleAddPlaceToRoute = (place: PlaceItem) => {
     if (!activeRoute) return
     const dayIndex = activeRoute.days.length - 1
@@ -689,7 +701,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // нормализуем заголовок под Вики
     const baseTitle = activePoint.point.title || ''
     let normalizedTitle = baseTitle.trim()
 
@@ -700,7 +711,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       .replace(/^Переезд\s+в\s+/i, '')
       .trim()
 
-    // спец-кейс: Кафедральный собор и остров Канта
     if (/кафедральный собор и остров канта/i.test(baseTitle)) {
       normalizedTitle = 'Кафедральный собор (Калининград)'
     }
@@ -713,7 +723,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const titleForWiki = normalizedTitle || fallbackFromDescription
 
-    // если нам вообще нечем бить в Вики — просто ничего не показываем
     if (!titleForWiki) {
       setWikiInfo({
         loading: false,
@@ -780,8 +789,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
     const uniqLocal = Array.from(new Set(localImages))
 
-    // city-cover используем только как запасной вариант,
-    // если у маршрута вообще нет своих обложек
     const routeImagesWithCover =
       uniqLocal.length === 0 && cityCoverUrl ? [cityCoverUrl] : uniqLocal
 
@@ -811,7 +818,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setIsWikiVisible(false)
   }
 
-  // Отправить текущий (подредактированный) маршрут в «Мои поездки»
   const handleSendToMyTrips = () => {
     if (!webApp || !activeRoute) return
 
@@ -871,7 +877,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
           }
           onClick={() => {
             setViewMode('routes')
-            setActiveRoute(null) // при входе во вкладку — всегда стартуем со списка
+            setActiveRoute(null)
           }}
         >
           Все маршруты
@@ -940,7 +946,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       {/* ВКЛАДКА: ВСЕ МАРШРУТЫ */}
       {viewMode === 'routes' && (
         <div className="routes-tab">
-          {/* ЕСЛИ МАРШРУТ НЕ ВЫБРАН — ФИЛЬТРЫ + СПИСОК */}
           {!activeRoute && (
             <>
               <div className="section-title">Готовые маршруты</div>
@@ -1057,7 +1062,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 </div>
               </div>
 
-              {/* Список маршрутов */}
               <div className="routes-list-bottom">
                 {visibleRoutes.map(route => (
                   <button
@@ -1080,7 +1084,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             </>
           )}
 
-          {/* ЕСЛИ МАРШРУТ ВЫБРАН — ОТДЕЛЬНЫЙ ЭКРАН */}
           {activeRoute && (
             <div className="route-detail-page">
               <button
@@ -1100,7 +1103,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 </div>
 
-                {/* Карусель обложек маршрута */}
                 {routeImages.length > 0 && (
                   <div className="route-main-carousel">
                     <div className="route-main-carousel-inner">
@@ -1118,7 +1120,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                         alt={activeRoute.title}
                         className="route-main-carousel-image"
                         onError={e => {
-                          // если обложка не загрузилась — скрываем элемент
                           e.currentTarget.style.display = 'none'
                         }}
                       />
@@ -1135,7 +1136,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 )}
 
-                {/* Инфо по маршруту */}
                 {hasRouteInfo && (
                   <div className="route-detail-meta">
                     {typeof activeRoute.distanceKm !== 'undefined' && (
@@ -1153,7 +1153,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 )}
 
-                {/* Дни и точки маршрута */}
                 <div className="route-days-list">
                   {activeRoute.days.map((day, dayIndex) => {
                     const hiddenForDay = hiddenPoints[dayIndex] ?? []
@@ -1218,7 +1217,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                             )
                           })}
 
-                          {/* Добавленные пользователем точки этого дня */}
                           {dayExtra.map((point, exIndex) => (
                             <li
                               key={`extra-${exIndex}`}
@@ -1232,7 +1230,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                                     activeRoute,
                                     day.title,
                                     point,
-                                    -1 - exIndex // отрицательный индекс, чтобы не ходить в бэк
+                                    -1 - exIndex
                                   )
                                 }
                               >
@@ -1270,7 +1268,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   })}
                 </div>
 
-                {/* Добавить новое место */}
                 <div className="route-add-place-block">
                   <button
                     type="button"
@@ -1303,7 +1300,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   )}
                 </div>
 
-                {/* Карта Яндекс — в самом низу карточки маршрута */}
                 {getEmbedUrl(activeRoute) && (
                   <div className="route-map-wrapper">
                     <iframe
@@ -1336,7 +1332,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </a>
                 )}
 
-                {/* Кнопка в "Мои поездки" */}
                 <button
                   type="button"
                   className="route-send-to-trips-btn"
@@ -1350,7 +1345,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         </div>
       )}
 
-      {/* Модалка точки — общая для всех вкладок */}
+      {/* Модалка точки */}
       {activePoint && (
         <div className="point-modal-backdrop" onClick={handleClosePointModal}>
           <div
