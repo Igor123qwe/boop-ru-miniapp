@@ -27,6 +27,20 @@ const normalizeCityKey = (city: string): string => {
   return city
 }
 
+// Нормализуем строку города к имени папки в бакете (как в Object Storage)
+const normalizeCityFolder = (city: string): string => {
+  const c = city.toLowerCase().trim()
+
+  if (c.includes('калининг')) return 'калининград'
+  if (c.includes('моск')) return 'москва'
+  if (c.includes('петербург') || c.includes('санкт') || c.includes('spb') || c.includes('спб'))
+    return 'санкт-петербург'
+  if (c.includes('сочи')) return 'сочи'
+  if (c.includes('казан')) return 'казань'
+
+  return c
+}
+
 // вспомогательно: все маршруты (на случай, если город не распознан)
 const getAllRoutes = (): PopularRoute[] => {
   const arrays = Object.values(POPULAR_ROUTES)
@@ -128,7 +142,7 @@ const CLOUD_BASE_URL =
   'https://storage.yandexcloud.net/progid-images'
 
 const getCityCoverUrl = (cityFolder: string): string =>
-  `${CLOUD_BASE_URL}/${encodeURIComponent(cityFolder)}/city-cover.jpg`
+  `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
 
 // Максимум фотографий, которые пробуем взять из облака на одну точку
 const MAX_CLOUD_POINT_IMAGES = 8
@@ -152,9 +166,8 @@ const loadCloudPointImages = async (
   const goodUrls: string[] = []
 
   for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${CLOUD_BASE_URL}/${encodeURIComponent(
-      cityFolder
-    )}/${encodeURIComponent(routeId)}/point_${pointIndex}/image-${i}.jpg`
+    // путь: https://storage.yandexcloud.net/progid-images/калининград/kaliningrad_day_1/point_2/image-1.jpg
+    const url = `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}/image-${i}.jpg`
 
     // eslint-disable-next-line no-await-in-loop
     const ok = await probeImageUrl(url)
@@ -273,8 +286,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   const cityTitle = routes[0]?.city ?? city
 
-  // имя папки города в бакете
-  const cityFolder = cityTitle.trim().toLowerCase()
+  // имя папки города в бакете (приводим к "калининград" и т.п.)
+  const cityFolder = normalizeCityFolder(cityTitle)
   const cityCoverUrl = getCityCoverUrl(cityFolder)
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
