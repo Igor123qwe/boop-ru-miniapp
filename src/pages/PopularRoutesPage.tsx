@@ -122,13 +122,50 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
 
-// базовый URL для фоток из облака (city cover)
+// базовый URL для фоток из облака (city cover и точки)
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images'
 
 const getCityCoverUrl = (cityFolder: string): string =>
   `${CLOUD_BASE_URL}/${encodeURIComponent(cityFolder)}/city-cover.jpg`
+
+// Максимум фотографий, которые пробуем взять из облака на одну точку
+const MAX_CLOUD_POINT_IMAGES = 8
+
+// Проверяем, что картинка реально существует
+const probeImageUrl = (url: string): Promise<boolean> => {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => resolve(true)
+    img.onerror = () => resolve(false)
+    img.src = url
+  })
+}
+
+// Пытаемся достать фотки точки напрямую из Yandex Object Storage
+const loadCloudPointImages = async (
+  cityFolder: string,
+  routeId: string,
+  pointIndex: number
+): Promise<string[]> => {
+  const goodUrls: string[] = []
+
+  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
+    const url = `${CLOUD_BASE_URL}/${encodeURIComponent(
+      cityFolder
+    )}/${encodeURIComponent(routeId)}/point_${pointIndex}/image-${i}.jpg`
+
+    // проверяем по одной, чтобы не плодить битые изображения
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await probeImageUrl(url)
+    if (ok) {
+      goodUrls.push(url)
+    }
+  }
+
+  return goodUrls
+}
 
 // Тип "достопримечательность" в списке
 type PlaceItem = {
@@ -354,7 +391,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   ) => {
     // index < 0 — это добавленная пользователем точка, для неё не ходим в бэкенд за фото
     const isExtra = index < 0
-    const cacheKey = isExtra ? `extra_${route.id}_${Math.abs(index)}` : `${route.id}_${index}`
+    const cacheKey = isExtra
+      ? `extra_${route.id}_${Math.abs(index)}`
+      : `${route.id}_${index}`
 
     // запоминаем маршрут
     setActiveRoute(route)
@@ -381,7 +420,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (cached.length > 0) {
       setPointImages(buildImages(cached))
     } else {
-      // пока не знаем про облако — показываем только локальные
+      // пока не знаем про облако/бэкенд — показываем только локальные
       setPointImages(buildImages())
     }
 
@@ -397,7 +436,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    // если уже есть в кэше — парсер/бекенд больше не трогаем
+    // если уже есть в кэше — парсер/бекенд больше не трогаем (но может быть ещё локальные картинки)
     if (cached.length > 0) {
       setWikiInfo({
         loading: true,
@@ -463,9 +502,35 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       }
     }
 
+    // 1) параллельно дергаем бэкенд
     fetchFromBackend(0)
 
-    // --- Википедия ---
+    // 2) и параллельно пробуем напрямую достать фотки из облака
+    loadCloudPointImages(cityFolder, route.id, index)
+      .then(cloudPhotos => {
+        if (!cloudPhotos || cloudPhotos.length === 0) return
+
+        // обновляем кэш
+        setPointPhotosCache(prev => {
+          const prevCached = prev[cacheKey] ?? []
+          const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
+          return {
+            ...prev,
+            [cacheKey]: merged
+          }
+        })
+
+        // обновляем список картинок модалки
+        setPointImages(prev => {
+          const all = [...prev, ...cloudPhotos]
+          return Array.from(new Set(all.filter(Boolean)))
+        })
+      })
+      .catch(err => {
+        console.error('cloud photos load error', err)
+      })
+
+    // --- Вики дальше обрабатываем в useEffect по activePoint ---
     setWikiInfo({
       loading: true,
       error: false,
@@ -611,8 +676,45 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setMainImageIndex(prev => (prev + 1) % imagesCount)
   }
 
+  // ====== Загрузка описания из Википедии по активной точке ======
   useEffect(() => {
     if (!activePoint) {
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: null,
+        url: null
+      })
+      setIsWikiVisible(false)
+      return
+    }
+
+    // нормализуем заголовок под Вики
+    const baseTitle = activePoint.point.title || ''
+    let normalizedTitle = baseTitle.trim()
+
+    normalizedTitle = normalizedTitle
+      .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
+      .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
+      .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
+      .replace(/^Переезд\s+в\s+/i, '')
+      .trim()
+
+    // спец-кейс: Кафедральный собор и остров Канта
+    if (/кафедральный собор и остров канта/i.test(baseTitle)) {
+      normalizedTitle = 'Кафедральный собор (Калининград)'
+    }
+
+    const fallbackFromDescription =
+      activePoint.point.description &&
+      activePoint.point.description.length < 40
+        ? activePoint.point.description
+        : ''
+
+    const titleForWiki = normalizedTitle || fallbackFromDescription
+
+    // если нам вообще нечем бить в Вики — просто ничего не показываем
+    if (!titleForWiki) {
       setWikiInfo({
         loading: false,
         error: false,
@@ -630,12 +732,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       url: null
     })
     setIsWikiVisible(true)
-
-    const titleForWiki =
-      activePoint.point.description &&
-      activePoint.point.description.length < 40
-        ? activePoint.point.description
-        : activePoint.point.title
 
     let isCancelled = false
 
@@ -687,9 +783,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     // city-cover используем только как запасной вариант,
     // если у маршрута вообще нет своих обложек
     const routeImagesWithCover =
-      uniqLocal.length === 0 && cityCoverUrl
-        ? [cityCoverUrl]
-        : uniqLocal
+      uniqLocal.length === 0 && cityCoverUrl ? [cityCoverUrl] : uniqLocal
 
     setRouteImages(routeImagesWithCover)
 
@@ -734,7 +828,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (webApp?.sendData) {
       webApp.sendData(data)
     } else {
-      alert('Маршрут будет сохранён в "Мои поездки" при запуске мини-приложения в Telegram.')
+      alert(
+        'Маршрут будет сохранён в "Мои поездки" при запуске мини-приложения в Telegram.'
+      )
     }
   }
 
@@ -1322,13 +1418,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
             {isWikiVisible && (
               <div className="point-modal-wiki">
                 {wikiInfo.loading && <div>Загружаем описание…</div>}
-                {wikiInfo.error && (
+                {wikiInfo.error && !wikiInfo.extract && (
                   <div>
                     Не удалось загрузить описание с Википедии. Попробуйте позже или
                     загляните на карту.
                   </div>
                 )}
-                {!wikiInfo.loading && !wikiInfo.error && wikiInfo.extract && (
+                {!wikiInfo.loading && wikiInfo.extract && (
                   <>
                     <div className="point-modal-wiki-extract">
                       {wikiInfo.extract}
