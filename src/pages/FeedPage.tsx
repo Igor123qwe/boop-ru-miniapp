@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
 import './PopularRoutesPage.css'
@@ -292,7 +292,7 @@ const isUtilityPoint = (title?: string): boolean => {
     /^отдых$/,
     /^шопинг$/,
     /^магазин$/,
-    /^рынок$/
+    /^рынок$/,
   ]
 
   return utilityPatterns.some(re => re.test(t))
@@ -363,23 +363,23 @@ const buildWikiCandidates = (
       'Верхнее озеро (Калининград)',
       'Парк Юность (Калининград)',
       'Верхнее озеро Калининград',
-      'Парк Юность Калининград'
+      'Парк Юность Калининград',
     ],
     'верхнее озеро и парк "юность"': [
       'Верхнее озеро (Калининград)',
       'Парк Юность (Калининград)',
       'Верхнее озеро Калининград',
-      'Парк Юность Калининград'
+      'Парк Юность Калининград',
     ],
     'кафедральный собор и остров канта': [
       'Кафедральный собор (Калининград)',
       'Остров Канта',
-      'Кнайпхоф'
+      'Кнайпхоф',
     ],
     'рыбная деревня': ['Рыбная деревня (Калининград)'],
     'музей мирового океана': ['Музей Мирового океана'],
     'нижнее озеро': ['Нижнее озеро (Калининград)', 'Нижнее озеро Калининград'],
-    'верхнее озеро': ['Верхнее озеро (Калининград)', 'Верхнее озеро Калининград']
+    'верхнее озеро': ['Верхнее озеро (Калининград)', 'Верхнее озеро Калининград'],
   }
 
   const aliases = aliasMap[cleaned.toLowerCase()] ?? []
@@ -397,7 +397,7 @@ const buildWikiCandidates = (
     `${cleaned} (${city})`,
     `${cleaned} ${city}`,
     ...aliases,
-    ...descriptionBased
+    ...descriptionBased,
   ])
 }
 
@@ -410,7 +410,7 @@ const fetchWikiSummaryDirect = async (
     )}`
 
     const res = await fetch(summaryUrl, {
-      headers: { Accept: 'application/json' }
+      headers: { Accept: 'application/json' },
     })
 
     if (!res.ok) return null
@@ -502,7 +502,7 @@ const saveTripToLocalStorage = (trip: SavedTrip): void => {
       ...current[existingIndex],
       ...trip,
       createdAt: current[existingIndex].createdAt,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     }
   } else {
     current.unshift(trip)
@@ -513,6 +513,7 @@ const saveTripToLocalStorage = (trip: SavedTrip): void => {
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteId }) => {
   const { webApp } = useTelegramWebApp()
+  const pointRequestRef = useRef(0)
 
   const cityKey = normalizeCityKey(city)
 
@@ -528,8 +529,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
   const [sortMode, setSortMode] = useState<SortMode>('popularity')
-  const [difficultyFilter, setDifficultyFilter] =
-    useState<DifficultyFilter>('all')
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all')
 
   const maxDaysAvailable =
     routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
@@ -552,7 +552,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     loading: false,
     error: false,
     extract: null,
-    url: null
+    url: null,
   })
   const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
 
@@ -589,7 +589,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         loading: false,
         error: false,
         extract: null,
-        url: null
+        url: null,
       })
       setIsWikiVisible(false)
       setHiddenPoints({})
@@ -673,15 +673,17 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
   const allPlaces = useMemo<PlaceItem[]>(() => {
     const list: PlaceItem[] = []
-    const usedTitles = new Set<string>()
+    const usedKeys = new Set<string>()
 
     for (const route of routes) {
       route.days.forEach((day, dayIdx) => {
         day.points.forEach((point, pointIdx) => {
-          const normalizedTitle = (point.title || '').toLowerCase().trim()
-          if (!normalizedTitle) return
-          if (usedTitles.has(normalizedTitle)) return
-          usedTitles.add(normalizedTitle)
+          const title = point.title?.trim()
+          if (!title) return
+
+          const key = buildPlaceCacheKey(route.city || cityTitle, title)
+          if (usedKeys.has(key)) return
+          usedKeys.add(key)
 
           list.push({
             id: `${route.id}_${dayIdx}_${pointIdx}`,
@@ -689,14 +691,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
             dayIndex: dayIdx,
             dayTitle: day.title,
             pointIndex: pointIdx,
-            point
+            point,
           })
         })
       })
     }
 
     return list
-  }, [routes])
+  }, [routes, cityTitle])
 
   const visiblePlaces = useMemo<PlaceItem[]>(() => {
     const q = placesQuery.toLowerCase().trim()
@@ -727,12 +729,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     routes.forEach(route => {
       route.days.forEach(day => {
         day.points.forEach(point => {
-          if (point.title?.trim()) set.add(point.title.trim().toLowerCase())
+          if (point.title?.trim()) {
+            set.add(buildPlaceCacheKey(route.city || cityTitle, point.title))
+          }
         })
       })
     })
     return set.size
-  }, [routes])
+  }, [routes, cityTitle])
 
   const openZoomImage = (src: string, title: string) => {
     setZoomedImage(src)
@@ -749,7 +753,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
   ): Promise<string[]> => {
     const urlsToTry = [
       `${API_BASE}/api/photos?${params.toString()}`,
-      `${API_BASE}/photos?${params.toString()}`
+      `${API_BASE}/photos?${params.toString()}`,
     ]
 
     for (const url of urlsToTry) {
@@ -783,6 +787,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     },
     pointIndex: number
   ) => {
+    const currentRequestId = ++pointRequestRef.current
     const placeCacheKey = buildPlaceCacheKey(route.city || cityTitle, point.title)
 
     setActiveRoute(route)
@@ -791,7 +796,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       dayTitle,
       dayIndex,
       pointIndex,
-      point
+      point,
     })
     setActiveImageIndex(0)
     setIsPointImagesLoading(true)
@@ -819,7 +824,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       loading: true,
       error: false,
       extract: null,
-      url: null
+      url: null,
     })
     setIsWikiVisible(true)
 
@@ -829,16 +834,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     const params = new URLSearchParams({
       city: route.city || cityTitle,
-      title: cleanupPlaceTitle(point.title || '')
+      title: cleanupPlaceTitle(point.title || ''),
     })
 
     try {
       const remotePhotos = await fetchPhotosFromBackend(params)
 
+      if (pointRequestRef.current !== currentRequestId) return
+
       if (remotePhotos.length > 0) {
         setPointPhotosCache(prev => ({
           ...prev,
-          [placeCacheKey]: remotePhotos
+          [placeCacheKey]: remotePhotos,
         }))
 
         setPointImages(prev => {
@@ -853,6 +860,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     loadCloudPointImages(cityFolder, point.title)
       .then(cloudPhotos => {
+        if (pointRequestRef.current !== currentRequestId) return
+
         if (!cloudPhotos || cloudPhotos.length === 0) {
           if (baseImages.length === 0) {
             setIsPointImagesLoading(false)
@@ -865,7 +874,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
           return {
             ...prev,
-            [placeCacheKey]: merged
+            [placeCacheKey]: merged,
           }
         })
 
@@ -877,7 +886,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       })
       .catch(err => {
         console.error('cloud photos load error', err)
-        setIsPointImagesLoading(false)
+        if (pointRequestRef.current === currentRequestId) {
+          setIsPointImagesLoading(false)
+        }
       })
   }
 
@@ -886,7 +897,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     const payload = {
       type: 'start_custom_route',
-      city: cityTitle
+      city: cityTitle,
     }
 
     const data = JSON.stringify(payload)
@@ -905,7 +916,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     const payload = {
       type: 'ai_route',
-      city: cityTitle
+      city: cityTitle,
     }
 
     const data = JSON.stringify(payload)
@@ -929,7 +940,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       dayIndex: activePoint.dayIndex,
       pointIndex: activePoint.pointIndex,
       pointTitle: activePoint.point.title,
-      pointTime: activePoint.point.time ?? null
+      pointTime: activePoint.point.time ?? null,
     }
 
     const data = JSON.stringify(payload)
@@ -949,7 +960,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       if (prevArr.includes(pointIndex)) return prev
       return {
         ...prev,
-        [dayIndex]: [...prevArr, pointIndex]
+        [dayIndex]: [...prevArr, pointIndex],
       }
     })
   }
@@ -976,14 +987,22 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       title: place.point.title,
       description: place.point.description,
       time: place.point.time,
-      images: place.point.images
+      images: place.point.images,
     }
 
     setExtraPoints(prev => {
       const dayExtras = prev[dayIndex] ?? []
+      const exists = dayExtras.some(
+        item =>
+          buildPlaceCacheKey(activeRoute.city || cityTitle, item.title) ===
+          buildPlaceCacheKey(place.route.city || cityTitle, newPoint.title)
+      )
+
+      if (exists) return prev
+
       return {
         ...prev,
-        [dayIndex]: [...dayExtras, newPoint]
+        [dayIndex]: [...dayExtras, newPoint],
       }
     })
 
@@ -1022,7 +1041,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         loading: false,
         error: false,
         extract: null,
-        url: null
+        url: null,
       })
       setIsWikiVisible(false)
       return
@@ -1036,7 +1055,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         loading: false,
         error: false,
         extract: null,
-        url: null
+        url: null,
       })
       setIsWikiVisible(false)
       return
@@ -1046,7 +1065,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       loading: true,
       error: false,
       extract: null,
-      url: null
+      url: null,
     })
     setIsWikiVisible(true)
 
@@ -1066,7 +1085,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           loading: false,
           error: true,
           extract: null,
-          url: null
+          url: null,
         })
         return
       }
@@ -1075,7 +1094,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         loading: false,
         error: false,
         extract: data.extract,
-        url: data.url
+        url: data.url,
       })
     }
 
@@ -1130,6 +1149,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     typeof (activeRoute as any)?.season !== 'undefined'
 
   const handleClosePointModal = () => {
+    pointRequestRef.current += 1
     setActivePoint(null)
     setPointImages([])
     setFailedPointImages({})
@@ -1139,7 +1159,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       loading: false,
       error: false,
       extract: null,
-      url: null
+      url: null,
     })
     setIsWikiVisible(false)
   }
@@ -1168,7 +1188,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       extraPoints,
       routeSnapshot: activeRoute,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     }
 
     saveTripToLocalStorage(savedTrip)
@@ -1180,7 +1200,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       title: activeRoute.title,
       hiddenPoints,
       extraPoints,
-      savedAt: now
+      savedAt: now,
     }
 
     if (webApp?.sendData) {
@@ -1868,7 +1888,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
                         borderRadius: '16px',
                         overflow: 'hidden',
                         marginTop: '16px',
-                        marginBottom: '16px'
+                        marginBottom: '16px',
                       }}
                     />
                   </div>
@@ -2070,3 +2090,5 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     </div>
   )
 }
+
+export default PopularRoutesPage
