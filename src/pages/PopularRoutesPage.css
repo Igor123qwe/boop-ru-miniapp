@@ -1,13 +1,47 @@
 /* ===== Общий лэйаут ===== */
 
 .popular-routes-page {
-  padding: 16px;
-  padding-bottom: 32px;
+  --bg: #f4f7fb;
+  --card: rgba(255, 255, 255, 0.92);
+  --card-solid: #ffffff;
+  --line: rgba(15, 23, 42, 0.08);
+  --line-strong: rgba(15, 23, 42, 0.14);
+  --text: #0f172a;
+  --text-soft: #475569;
+  --text-muted: #64748b;
+  --shadow-sm: 0 4px 14px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 20px 50px rgba(15, 23, 42, 0.16);
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --accent: #111827;
+  --accent-2: #1f2937;
+  --blue: #2563eb;
+  --blue-soft: rgba(37, 99, 235, 0.1);
+  --violet: #7c3aed;
+  --violet-soft: rgba(124, 58, 237, 0.12);
+  --green: #059669;
+  --green-soft: rgba(5, 150, 105, 0.12);
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.1);
+  --easy: #047857;
+  --easy-bg: rgba(4, 120, 87, 0.12);
+  --medium: #b45309;
+  --medium-bg: rgba(180, 83, 9, 0.12);
+  --hard: #b91c1c;
+  --hard-bg: rgba(185, 28, 28, 0.12);
+
+  min-height: 100vh;
+  padding: 18px 16px 36px;
+  box-sizing: border-box;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text',
     'Segoe UI', sans-serif;
-  background: #f5f7fb;
-  min-height: 100vh;
-  box-sizing: border-box;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.06), transparent 28%),
+    radial-gradient(circle at top right, rgba(124, 58, 237, 0.05), transparent 26%),
+    linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
 }
 
 .popular-routes-page * {
@@ -18,255 +52,508 @@
 
 .pr-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .pr-back-btn {
-  border: none;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 10px 14px;
   font-size: 14px;
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  transition:
+    background 0.16s ease,
+    transform 0.14s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
 }
 
 .pr-back-btn:hover {
-  background: #f1f5f9;
+  background: #ffffff;
+  border-color: var(--line-strong);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-md);
+}
+
+.pr-back-btn:active {
+  transform: scale(0.98);
+}
+
+.pr-header-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
 }
 
 .pr-header-main h2 {
   margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 600;
-  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
 }
 
 .pr-header-city {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-muted);
+  margin-bottom: 10px;
 }
 
-/* ===== Верхние три кнопки ===== */
-
-.pr-actions-row {
+.pr-header-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 18px;
+}
+
+.pr-header-stats span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ===== Верхние кнопки ===== */
+
+.pr-actions-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .pr-actions-row button {
-  flex: 1 1 0;
-  min-width: 160px;
+  min-width: 0;
 }
 
-/* Базовый стиль кнопки */
 .pr-create-route-btn,
 .pr-ai-route-btn,
 .pr-all-routes-btn {
   position: relative;
-  border-radius: 999px;
-  border: none;
-  padding: 10px 18px;
+  min-height: 46px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  padding: 12px 16px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  background: #ffffff;
-  color: #111827;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
-  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease,
-    color 0.15s ease;
-  white-space: nowrap;
-}
-
-/* Создать свой маршрут — акцентированная */
-.pr-create-route-btn {
-  background: linear-gradient(90deg, #111827, #1f2937);
-  color: #f9fafb;
-}
-
-.pr-create-route-btn:hover {
-  background: linear-gradient(90deg, #020617, #111827);
-}
-
-/* Маршрут от ИИ — мягкий градиент */
-.pr-ai-route-btn {
-  background: linear-gradient(90deg, #2563eb1a, #a855f71a);
-  border: 1px solid rgba(37, 99, 235, 0.25);
-  color: #1d4ed8;
-}
-
-.pr-ai-route-btn:hover {
-  background: linear-gradient(90deg, #2563eb22, #a855f722);
-}
-
-/* Все маршруты — таб */
-.pr-all-routes-btn {
-  border: 1px solid #e5e7eb;
-}
-
-.pr-all-routes-btn.active {
-  border-color: #111827;
-  background: #111827;
-  color: #f9fafb;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .pr-create-route-btn:hover,
 .pr-ai-route-btn:hover,
 .pr-all-routes-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.09);
+  box-shadow: var(--shadow-md);
 }
 
-/* ===== Общие заголовки секций ===== */
+.pr-create-route-btn:active,
+.pr-ai-route-btn:active,
+.pr-all-routes-btn:active {
+  transform: scale(0.99);
+}
+
+.pr-create-route-btn {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: linear-gradient(135deg, #111827 0%, #0f172a 60%, #1f2937 100%);
+  color: #f8fafc;
+}
+
+.pr-create-route-btn:hover {
+  background: linear-gradient(135deg, #020617 0%, #111827 55%, #1e293b 100%);
+}
+
+.pr-ai-route-btn {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(124, 58, 237, 0.12));
+  border-color: rgba(37, 99, 235, 0.2);
+  color: #1d4ed8;
+}
+
+.pr-ai-route-btn.active {
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.24);
+}
+
+.pr-all-routes-btn {
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text-soft);
+}
+
+.pr-all-routes-btn.active {
+  background: linear-gradient(135deg, #111827, #1f2937);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
+}
+
+/* ===== Общие секции ===== */
+
+.places-section,
+.routes-tab {
+  margin-top: 4px;
+}
 
 .section-title {
-  margin: 12px 0 4px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #0f172a;
+  margin: 0 0 6px;
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
 }
 
 .section-subtitle {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ===== Верхние summary-блоки ===== */
+
+.pr-top-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pr-summary-card {
+  padding: 14px 14px 12px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-sm);
+}
+
+.pr-summary-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.pr-summary-value {
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+/* ===== Поиск и toolbar достопримечательностей ===== */
+
+.pr-places-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pr-places-search {
+  flex: 1 1 300px;
+  min-height: 46px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text);
+  font-size: 14px;
+  box-shadow: var(--shadow-sm);
+  outline: none;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.pr-places-search::placeholder {
+  color: #94a3b8;
+}
+
+.pr-places-search:focus {
+  border-color: rgba(37, 99, 235, 0.32);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+  background: #ffffff;
+}
+
+.pr-places-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-soft);
   font-size: 13px;
-  color: #6b7280;
-  margin-bottom: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
 }
 
-/* ===== Достопримечательности (перечень мест) ===== */
-
-.places-section {
-  margin-top: 8px;
+.pr-places-toggle input {
+  accent-color: #111827;
 }
 
-.routes-list {
-  margin-top: 8px;
+/* ===== Списки карточек ===== */
+
+.routes-list,
+.routes-list-bottom {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-/* Карточка (используется и для мест, и для маршрутов) */
+.routes-list-bottom {
+  margin-top: 10px;
+}
+
+/* ===== Общая карточка ===== */
+
 .route-card {
   width: 100%;
   text-align: left;
-  border-radius: 14px;
-  padding: 10px 14px;
-  border: none;
-  background: #ffffff;
+  border-radius: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  backdrop-filter: blur(12px);
   cursor: pointer;
-  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.05);
-  transition: box-shadow 0.15s ease, transform 0.12s ease, background 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
 }
 
 .route-card:hover {
-  background: #f9fafb;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+  border-color: rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  box-shadow: var(--shadow-md);
 }
 
 .route-card-active {
-  border: 1px solid #111827;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14);
+  border-color: rgba(17, 24, 39, 0.28);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.route-card-place {
+  padding: 14px 16px;
+}
+
+.route-card-rich {
+  padding: 16px;
 }
 
 .route-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
 .route-card-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #111827;
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .route-days {
+  flex: 0 0 auto;
   font-size: 12px;
-  font-weight: 500;
-  color: #6b7280;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .route-desc {
-  margin-top: 4px;
+  margin-top: 8px;
   font-size: 13px;
-  color: #4b5563;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.route-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.route-card-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.route-card-badge-muted {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+}
+
+.route-card-badge-difficulty.is-easy {
+  background: var(--easy-bg);
+  color: var(--easy);
+}
+
+.route-card-badge-difficulty.is-medium {
+  background: var(--medium-bg);
+  color: var(--medium);
+}
+
+.route-card-badge-difficulty.is-hard {
+  background: var(--hard-bg);
+  color: var(--hard);
+}
+
+.route-preview-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.route-preview-points-detail {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.route-preview-point {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(124, 58, 237, 0.08));
+  border: 1px solid rgba(37, 99, 235, 0.1);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .places-empty {
+  padding: 16px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px dashed rgba(100, 116, 139, 0.22);
+  color: #64748b;
   font-size: 13px;
-  color: #9ca3af;
-  margin-top: 8px;
+  line-height: 1.45;
+  text-align: center;
 }
 
-/* ===== Вкладка "Все маршруты" ===== */
+/* ===== Вкладка маршрутов ===== */
 
 .routes-tab {
-  margin-top: 24px;
-  padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-/* Фильтры */
 .pr-filters {
-  margin-top: 8px;
-  margin-bottom: 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  margin-bottom: 14px;
 }
 
 .pr-filter-section {
-  flex: 1 1 220px;
-  min-width: 220px;
+  flex: 1 1 260px;
+  min-width: 240px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
 }
 
 .pr-filter-label {
   display: block;
+  margin-bottom: 8px;
   font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 4px;
+  font-weight: 700;
+  color: var(--text-muted);
 }
 
 .pr-segmented {
   display: flex;
-  background: #e5e7eb66;
-  padding: 3px;
-  border-radius: 999px;
   gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .pr-segmented-btn {
   flex: 1 1 0;
   min-width: 0;
-  border-radius: 999px;
   border: none;
-  padding: 6px 8px;
-  font-size: 12px;
-  cursor: pointer;
+  border-radius: 999px;
+  padding: 8px 10px;
   background: transparent;
-  color: #4b5563;
-  font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
 }
 
 .pr-segmented-btn.active {
   background: #111827;
-  color: #f9fafb;
+  color: #f8fafc;
+}
+
+.pr-segmented-btn:hover {
+  transform: translateY(-1px);
 }
 
 .pr-range-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .pr-range-row input[type='range'] {
@@ -274,89 +561,134 @@
 }
 
 .pr-range-value {
+  min-width: 72px;
   font-size: 12px;
-  color: #4b5563;
+  font-weight: 700;
+  color: var(--text-soft);
+  text-align: right;
 }
 
-/* Стандартный слайдер немного симпатичнее */
 input[type='range'] {
   -webkit-appearance: none;
   width: 100%;
-  height: 4px;
+  height: 6px;
   border-radius: 999px;
-  background: #e5e7eb;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.18), rgba(124, 58, 237, 0.18));
   outline: none;
 }
 
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #111827;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
   cursor: pointer;
 }
 
 input[type='range']::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #111827;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
   cursor: pointer;
 }
 
-/* Нижний список маршрутов внутри вкладки */
-.routes-list-bottom {
-  margin-top: 10px;
+/* ===== ИИ-блок ===== */
+
+.pr-ai-box {
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(247, 250, 255, 0.96)),
+    linear-gradient(135deg, rgba(37, 99, 235, 0.06), rgba(124, 58, 237, 0.06));
+  box-shadow: var(--shadow-md);
+}
+
+.pr-ai-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.pr-ai-list-item {
+  min-height: 52px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(37, 99, 235, 0.08);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
 /* ===== Деталка маршрута ===== */
 
+.route-detail-page {
+  margin-top: 6px;
+}
+
 .route-detail-card {
   margin-top: 12px;
-  margin-bottom: 12px;
-  padding: 14px 14px 16px;
-  border-radius: 18px;
-  background: #ffffff;
-  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+  padding: 16px 16px 18px;
+  border-radius: 24px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-lg);
 }
 
 .route-detail-header {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .route-detail-header h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #111827;
+  font-size: 22px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
 }
 
 .route-detail-subtitle {
+  flex: 0 0 auto;
   font-size: 13px;
-  color: #6b7280;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding-top: 4px;
 }
 
 .route-main-carousel {
-  margin-top: 10px;
-  margin-bottom: 8px;
+  margin-top: 14px;
+  margin-bottom: 10px;
 }
 
 .route-main-carousel-inner {
   position: relative;
-  border-radius: 14px;
   overflow: hidden;
+  border-radius: 20px;
   background: #0f172a;
+  box-shadow: var(--shadow-md);
 }
 
 .route-main-carousel-image {
   width: 100%;
   display: block;
-  max-height: 260px;
+  max-height: 320px;
   object-fit: cover;
 }
 
@@ -364,143 +696,235 @@ input[type='range']::-moz-range-thumb {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  border-radius: 999px;
+  width: 34px;
+  height: 34px;
   border: none;
-  width: 28px;
-  height: 28px;
-  background: rgba(15, 23, 42, 0.8);
-  color: #f9fafb;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.74);
+  color: #f8fafc;
+  font-size: 15px;
   cursor: pointer;
-  font-size: 14px;
+  backdrop-filter: blur(6px);
+  transition:
+    background 0.14s ease,
+    transform 0.12s ease;
+}
+
+.route-main-carousel-btn:hover {
+  background: rgba(15, 23, 42, 0.9);
 }
 
 .route-main-carousel-btn.left {
-  left: 8px;
+  left: 10px;
 }
 
 .route-main-carousel-btn.right {
-  right: 8px;
+  right: 10px;
+}
+
+.route-main-carousel-dots {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.route-main-carousel-dot {
+  width: 8px;
+  height: 8px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.35);
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease,
+    width 0.12s ease;
+}
+
+.route-main-carousel-dot.active {
+  width: 20px;
+  background: #111827;
+}
+
+.route-detail-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 10px;
+}
+
+.route-overview-card {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.route-overview-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.route-overview-value {
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
 
 .route-detail-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 8px 12px;
+  margin-top: 2px;
+  margin-bottom: 10px;
   font-size: 13px;
-  color: #4b5563;
-  margin-bottom: 8px;
-  margin-top: 4px;
+  line-height: 1.45;
+  color: var(--text-soft);
 }
 
-/* Дни маршрута */
+.route-detail-meta > div {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+/* ===== Дни маршрута ===== */
+
 .route-days-list {
-  margin-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .route-day-block {
-  border-radius: 12px;
-  padding: 8px 10px;
-  background: #f9fafb;
+  padding: 12px;
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.86);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .route-day-header {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .route-day-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #111827;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
 
 .route-day-description {
+  margin-top: 3px;
   font-size: 12px;
-  color: #6b7280;
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 
-/* Список точек внутри дня */
+/* ===== Список точек ===== */
+
 .route-points-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-/* строка точки + крестик */
 .route-point-li {
   display: flex;
   align-items: stretch;
-  gap: 6px;
-  transition: transform 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+  gap: 8px;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    filter 0.15s ease;
 }
 
 .route-point-li + .route-point-li {
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
-/* лёгкий отклик по нажатию */
 .route-point-li:active .route-point-item {
-  transform: scale(0.99);
+  transform: scale(0.995);
 }
 
-/* сама плашка точки */
 .route-point-item {
   width: 100%;
-  border-radius: 10px;
-  border: none;
-  padding: 6px 8px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 16px;
   background: #ffffff;
   cursor: pointer;
-  transition: background 0.12s ease, transform 0.12s ease;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    transform 0.12s ease,
+    box-shadow 0.14s ease;
 }
 
 .route-point-item:hover {
-  background: #e5e7eb66;
+  background: #fcfdff;
+  border-color: rgba(37, 99, 235, 0.12);
+  box-shadow: var(--shadow-sm);
 }
 
 .route-point-time {
+  flex: 0 0 auto;
+  min-width: 48px;
+  padding-top: 1px;
   font-size: 12px;
-  color: #6b7280;
-  min-width: 42px;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--text-muted);
 }
 
 .route-point-main {
   flex: 1 1 auto;
+  min-width: 0;
 }
 
 .route-point-title {
   font-size: 13px;
-  font-weight: 500;
-  color: #111827;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .route-point-description {
+  margin-top: 2px;
   font-size: 12px;
-  color: #6b7280;
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 
-/* Крестик удаления точки */
 .route-point-remove-btn {
   align-self: center;
   flex: 0 0 auto;
-  border-radius: 999px;
+  width: 28px;
+  height: 28px;
   border: none;
-  width: 24px;
-  height: 24px;
-  margin-left: 2px;
-  background: #f3f4f6;
-  color: #9ca3af;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #94a3b8;
   cursor: pointer;
   font-size: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 0.12s ease;
 }
 
 .route-point-remove-btn:hover {
@@ -510,99 +934,112 @@ input[type='range']::-moz-range-thumb {
 }
 
 .route-point-remove-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
 }
 
-/* Дополнительные точки, добавленные пользователем */
 .route-point-li-extra .route-point-item {
-  background: #ecfdf5;
+  background: #f0fdf4;
   border: 1px dashed rgba(16, 185, 129, 0.4);
 }
 
 .route-point-li-extra .route-point-item:hover {
-  background: #d1fae5;
+  background: #dcfce7;
 }
 
-/* ===== Блок "Добавить место в маршрут" ===== */
+/* ===== Добавить место ===== */
 
 .route-add-place-block {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px dashed #e5e7eb;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.1);
 }
 
 .route-add-place-toggle {
-  border-radius: 999px;
   border: none;
-  padding: 7px 12px;
+  border-radius: 999px;
+  padding: 10px 14px;
   font-size: 13px;
-  background: #f3f4ff;
+  font-weight: 700;
   color: #4338ca;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.1), rgba(99, 102, 241, 0.12));
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    background 0.14s ease;
 }
 
 .route-add-place-toggle:hover {
-  background: #e0e7ff;
   transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.25);
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.14), rgba(99, 102, 241, 0.16));
+  box-shadow: 0 10px 20px rgba(79, 70, 229, 0.12);
 }
 
 .route-add-place-list {
-  margin-top: 8px;
-  max-height: 220px;
-  padding: 6px;
-  border-radius: 14px;
-  background: #f9fafb;
+  margin-top: 10px;
+  max-height: 260px;
   overflow-y: auto;
+  padding: 8px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.88);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .route-add-place-item {
-  border-radius: 999px;
-  border: none;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  background: #ffffff;
-  color: #111827;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
-  transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
-  text-align: left;
   max-width: 100%;
+  text-align: left;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px;
+  padding: 8px 11px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    background 0.14s ease,
+    border-color 0.14s ease;
 }
 
 .route-add-place-item:hover {
-  background: #eef2ff;
   transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.18);
+  background: #f8faff;
+  border-color: rgba(37, 99, 235, 0.12);
+  box-shadow: var(--shadow-md);
 }
 
 .route-add-place-title {
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .route-add-place-subtitle {
-  margin-top: 1px;
+  margin-top: 2px;
   font-size: 11px;
-  color: #6b7280;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
-/* ===== Карта и кнопки под ней ===== */
+/* ===== Карта и CTA ===== */
 
 .route-map-wrapper {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .pr-open-in-maps {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   margin-top: 4px;
   font-size: 13px;
-  color: #2563eb;
+  font-weight: 700;
+  color: var(--blue);
   text-decoration: none;
 }
 
@@ -615,26 +1052,34 @@ input[type='range']::-moz-range-thumb {
   text-decoration: underline;
 }
 
-/* кнопка "Отправить в мои поездки" */
 .route-send-to-trips-btn {
-  margin-top: 12px;
   width: 100%;
-  border-radius: 999px;
+  margin-top: 14px;
+  min-height: 48px;
   border: none;
-  padding: 10px 16px;
+  border-radius: 16px;
+  padding: 12px 18px;
   font-size: 14px;
-  font-weight: 600;
-  background: linear-gradient(90deg, #0f172a, #1f2937);
-  color: #f9fafb;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #f8fafc;
+  background: linear-gradient(135deg, #0f172a, #111827, #1f2937);
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.2);
-  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.18);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
 }
 
 .route-send-to-trips-btn:hover {
-  background: linear-gradient(90deg, #020617, #0f172a);
   transform: translateY(-1px);
-  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.28);
+  background: linear-gradient(135deg, #020617, #0f172a, #111827);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.24);
+}
+
+.route-send-to-trips-btn:active {
+  transform: scale(0.99);
 }
 
 /* ===== Модалка точки ===== */
@@ -642,75 +1087,102 @@ input[type='range']::-moz-range-thumb {
 .point-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  z-index: 50;
+  padding: 16px;
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 40;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.52), rgba(15, 23, 42, 0.6));
+  backdrop-filter: blur(4px);
 }
 
 .point-modal {
-  width: min(480px, 100% - 24px);
+  width: min(560px, 100%);
   max-height: calc(100vh - 32px);
-  background: #ffffff;
-  border-radius: 18px;
-  padding: 14px 14px 16px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.3);
+  overflow: hidden;
+  padding: 16px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.34);
 }
 
 .point-modal-header {
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
-  column-gap: 8px;
-  row-gap: 2px;
-  align-items: center;
-  margin-bottom: 8px;
+  gap: 4px 10px;
+  align-items: start;
+  margin-bottom: 10px;
 }
 
 .point-modal-close {
-  grid-row: 1 / span 2;
   grid-column: 2 / 3;
-  border-radius: 999px;
+  grid-row: 1 / 3;
+  width: 30px;
+  height: 30px;
   border: none;
-  width: 26px;
-  height: 26px;
-  background: #f3f4f6;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
   cursor: pointer;
   font-size: 14px;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 0.12s ease;
+}
+
+.point-modal-close:hover {
+  background: #e2e8f0;
+  color: var(--text);
+  transform: translateY(-1px);
 }
 
 .point-modal-title {
-  grid-column: 1 / 2;
-  grid-row: 1 / 2;
-  font-size: 15px;
-  font-weight: 600;
-  color: #111827;
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
 }
 
 .point-modal-time,
 .point-modal-day {
   font-size: 12px;
-  color: #6b7280;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.point-modal-loading,
+.point-modal-no-images {
+  margin-bottom: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .point-modal-carousel {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .point-modal-carousel-inner {
   position: relative;
-  border-radius: 14px;
   overflow: hidden;
+  border-radius: 18px;
   background: #0f172a;
 }
 
 .point-modal-image {
   width: 100%;
-  max-height: 260px;
+  max-height: 320px;
   object-fit: cover;
   display: block;
 }
@@ -719,57 +1191,121 @@ input[type='range']::-moz-range-thumb {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  border-radius: 999px;
+  width: 32px;
+  height: 32px;
   border: none;
-  width: 26px;
-  height: 26px;
-  background: rgba(15, 23, 42, 0.85);
-  color: #f9fafb;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .point-modal-carousel-btn.left {
-  left: 8px;
+  left: 10px;
 }
 
 .point-modal-carousel-btn.right {
-  right: 8px;
+  right: 10px;
+}
+
+.point-modal-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.point-modal-thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #e2e8f0;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    transform 0.12s ease,
+    box-shadow 0.14s ease;
+}
+
+.point-modal-thumb:hover {
+  transform: translateY(-1px);
+}
+
+.point-modal-thumb.active {
+  border-color: #111827;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.14);
+}
+
+.point-modal-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .point-modal-add-photo-btn {
-  margin-top: 6px;
-  margin-bottom: 8px;
   align-self: flex-start;
-  border-radius: 999px;
+  margin-top: 2px;
+  margin-bottom: 10px;
   border: none;
-  padding: 6px 10px;
+  border-radius: 999px;
+  padding: 8px 12px;
   font-size: 12px;
-  cursor: pointer;
-  background: #eef2ff;
+  font-weight: 700;
   color: #3730a3;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(79, 70, 229, 0.16));
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.14s ease,
+    background 0.14s ease;
 }
 
-/* Блок с Википедией */
+.point-modal-add-photo-btn:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(79, 70, 229, 0.2));
+}
+
+.point-modal-inline-description {
+  margin-bottom: 10px;
+  padding: 12px 13px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .point-modal-wiki {
   margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
   overflow-y: auto;
 }
 
 .point-modal-wiki-extract {
-  font-size: 13px;
-  color: #374151;
-  max-height: 160px;
+  max-height: 200px;
   overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
 }
 
 .point-modal-wiki-link {
-  display: inline-block;
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
   font-size: 12px;
-  color: #2563eb;
+  font-weight: 700;
+  color: var(--blue);
   text-decoration: none;
 }
 
@@ -777,14 +1313,160 @@ input[type='range']::-moz-range-thumb {
   text-decoration: underline;
 }
 
-/* ===== Мелкая адаптивность ===== */
+/* ===== Служебные скроллы ===== */
 
-@media (max-width: 600px) {
+.route-add-place-list::-webkit-scrollbar,
+.point-modal-wiki-extract::-webkit-scrollbar,
+.point-modal-thumbs::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.route-add-place-list::-webkit-scrollbar-thumb,
+.point-modal-wiki-extract::-webkit-scrollbar-thumb,
+.point-modal-thumbs::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.28);
+  border-radius: 999px;
+}
+
+/* ===== Адаптивность ===== */
+
+@media (max-width: 1100px) {
   .pr-actions-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .route-detail-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .popular-routes-page {
+    padding: 14px 12px 28px;
+  }
+
+  .pr-header {
+    align-items: flex-start;
+  }
+
+  .pr-header-main h2 {
+    font-size: 20px;
+  }
+
+  .pr-top-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .pr-ai-list {
+    grid-template-columns: 1fr;
+  }
+
+  .pr-filters {
     flex-direction: column;
+  }
+
+  .pr-filter-section {
+    min-width: 0;
+  }
+
+  .route-detail-overview {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .route-detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .route-detail-header h3 {
+    font-size: 19px;
+  }
+
+  .route-main-carousel-image,
+  .point-modal-image {
+    max-height: 240px;
+  }
+
+  .point-modal {
+    width: min(100%, 100%);
+    max-height: calc(100vh - 20px);
+    padding: 14px;
+    border-radius: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .pr-actions-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pr-actions-row button {
+    width: 100%;
+  }
+
+  .pr-places-toolbar {
+    flex-direction: column;
+  }
+
+  .pr-places-search,
+  .pr-places-toggle {
+    width: 100%;
+  }
+
+  .pr-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .pr-header-main {
+    width: 100%;
+  }
+
+  .pr-header-stats {
+    gap: 6px;
+  }
+
+  .route-card {
+    padding: 13px 14px;
+  }
+
+  .route-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .route-detail-overview {
+    grid-template-columns: 1fr;
   }
 
   .route-detail-meta {
     flex-direction: column;
+  }
+
+  .route-point-li {
+    gap: 6px;
+  }
+
+  .route-point-item {
+    padding: 9px 10px;
+  }
+
+  .route-point-time {
+    min-width: 44px;
+  }
+
+  .route-add-place-list {
+    max-height: 220px;
+  }
+
+  .point-modal-title {
+    font-size: 16px;
+  }
+
+  .point-modal-thumb {
+    width: 52px;
+    height: 52px;
   }
 }
