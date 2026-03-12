@@ -6,6 +6,7 @@ import './PopularRoutesPage.css'
 type Props = {
   city: string
   onBack: () => void
+  initialRouteId?: string
 }
 
 type SortMode = 'popularity' | 'days' | 'difficulty'
@@ -476,7 +477,7 @@ const saveTripToLocalStorage = (trip: SavedTrip): void => {
   localStorage.setItem(LOCAL_TRIPS_KEY, JSON.stringify(current))
 }
 
-export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
+export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteId }) => {
   const { webApp } = useTelegramWebApp()
 
   const cityKey = normalizeCityKey(city)
@@ -1084,6 +1085,16 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       setMainImageIndex(0)
     }
   }
+
+  useEffect(() => {
+    if (!initialRouteId) return
+    if (activeRoute?.id === initialRouteId) return
+
+    const found = routes.find(route => route.id === initialRouteId)
+    if (!found) return
+
+    handleSelectRoute(found)
+  }, [initialRouteId, activeRoute, routes])
 
   const hasRouteInfo =
     typeof activeRoute?.daysCount !== 'undefined' ||
