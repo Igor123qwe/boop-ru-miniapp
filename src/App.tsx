@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import type { AppUser, TripTemplate } from './types'
 import { Layout } from './components/Layout'
 import { HomePage } from './pages/HomePage'
-import { FeedPage } from './pages/FeedPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { TripDetailPage } from './pages/TripDetailPage'
 import { TripCreatePage } from './pages/TripCreatePage'
@@ -59,6 +58,11 @@ export const App: React.FC = () => {
     setCurrentPage('popularRoutes')
   }
 
+  const handleOpenFeed = () => {
+    setSelectedCity('Калининград')
+    setCurrentPage('feed')
+  }
+
   return (
     <>
       <Layout
@@ -69,12 +73,15 @@ export const App: React.FC = () => {
         {currentPage === 'home' && (
           <HomePage
             onOpenCity={handleOpenPopularRoutes}
-            onOpenFeed={() => setCurrentPage('feed')}
+            onOpenFeed={handleOpenFeed}
           />
         )}
 
         {currentPage === 'feed' && (
-          <FeedPage onOpenRoutes={handleOpenPopularRoutes} />
+          <PopularRoutesPage
+            city={selectedCity}
+            onBack={() => setCurrentPage('home')}
+          />
         )}
 
         {currentPage === 'popularRoutes' && (
@@ -116,7 +123,7 @@ export const App: React.FC = () => {
         <button
           type="button"
           className={currentPage === 'feed' ? 'active' : ''}
-          onClick={() => setCurrentPage('feed')}
+          onClick={handleOpenFeed}
         >
           <span>🌍</span>
           <span>Лента</span>
