@@ -4,6 +4,69 @@
   margin: 0 auto;
 }
 
+.feed-compose-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 24px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.feed-compose-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.feed-compose-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a;
+  color: white;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.feed-compose-main-btn {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: #111827;
+  color: white;
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.feed-compose-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.feed-compose-icon-btn {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 20px;
+  cursor: pointer;
+}
+
 .feed-header {
   margin-bottom: 14px;
 }
@@ -23,7 +86,7 @@
 
 .feed-list {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .feed-card {
@@ -39,40 +102,61 @@
   padding: 0;
 }
 
+.feed-image-wrap {
+  position: relative;
+}
+
 .feed-image {
   display: block;
   width: 100%;
-  max-height: 280px;
+  height: 340px;
   object-fit: cover;
   background: #f8fafc;
+}
+
+.feed-image-overlay {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.feed-image-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+
+.feed-image-loader {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.72);
+  color: white;
+  font-size: 12px;
 }
 
 .feed-content {
   padding: 16px;
 }
 
-.feed-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.feed-type,
-.feed-city-tag {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 7px 12px;
-  background: rgba(15, 23, 42, 0.05);
-  color: #64748b;
-  font-size: 12px;
-}
-
 .feed-title {
-  font-size: 20px;
-  line-height: 1.2;
+  font-size: 26px;
+  line-height: 1.15;
   font-weight: 800;
   color: #0f172a;
 }
@@ -81,15 +165,33 @@
   margin-top: 8px;
   color: #475569;
   line-height: 1.55;
+  font-size: 15px;
 }
 
 .feed-meta-line {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   color: #64748b;
   font-size: 14px;
+}
+
+.feed-preview-points {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feed-preview-point {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #334155;
+  font-size: 13px;
 }
 
 .feed-actions {
@@ -170,12 +272,29 @@
   font-size: 20px;
 }
 
+.feed-post-image-wrap {
+  position: relative;
+}
+
 .feed-post-image {
   display: block;
   width: 100%;
-  max-height: 420px;
+  max-height: 480px;
   object-fit: cover;
   background: #f8fafc;
+}
+
+.feed-post-image-loader {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.72);
+  color: white;
+  font-size: 13px;
 }
 
 .feed-post-body {
@@ -187,6 +306,17 @@
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.feed-type,
+.feed-city-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #64748b;
+  font-size: 12px;
 }
 
 .feed-post-title {
@@ -254,16 +384,26 @@
     padding: 12px 12px 92px;
   }
 
+  .feed-compose-card {
+    padding: 12px;
+    border-radius: 20px;
+  }
+
+  .feed-compose-main-btn {
+    font-size: 15px;
+    padding: 11px 14px;
+  }
+
   .feed-header h2 {
     font-size: 28px;
   }
 
   .feed-image {
-    max-height: 220px;
+    height: 240px;
   }
 
   .feed-title {
-    font-size: 18px;
+    font-size: 22px;
   }
 
   .feed-post-backdrop {
@@ -278,7 +418,7 @@
   }
 
   .feed-post-image {
-    max-height: 260px;
+    max-height: 280px;
   }
 
   .feed-post-title {

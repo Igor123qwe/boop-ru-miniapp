@@ -30,14 +30,11 @@ const DEMO_USER: AppUser = {
 }
 
 export const App: React.FC = () => {
-  // Главной страницей делаем именно ленту
   const [currentPage, setCurrentPage] = useState<Page>('feed')
-
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedCity, setSelectedCity] = useState<string>('Калининград')
   const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(undefined)
   const [routesBackPage, setRoutesBackPage] = useState<Page>('feed')
-
   const [trips, setTrips] = useState<TripTemplate[]>([])
 
   const goToTripDetail = (tripId: string) => {
@@ -86,7 +83,10 @@ export const App: React.FC = () => {
         )}
 
         {currentPage === 'feed' && (
-          <FeedPage onOpenRoutes={handleOpenPopularRoutes} />
+          <FeedPage
+            onOpenRoutes={handleOpenPopularRoutes}
+            onCreateRoute={handleCreateTripClick}
+          />
         )}
 
         {currentPage === 'popularRoutes' && (
