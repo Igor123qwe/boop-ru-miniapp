@@ -15,23 +15,32 @@ type Props = {
   onCreateMoment?: () => void
 }
 
+type FeedPostType = 'route' | 'place' | 'moment'
+
 type FeedPost = {
   id: string
+  type: FeedPostType
   routeId: string
   city: string
   cityFolder: string
   title: string
   description: string
   image: string
+  images: string[]
   likes: number
-  daysCount: number
-  pointsCount: number
+  daysCount?: number
+  pointsCount?: number
   difficulty?: string
   distanceKm?: number
   previewPoints: string[]
   route: PopularRoute
   createdAt: string
+  sourceRouteTitle?: string
+  pointTitle?: string
+  pointTime?: string
 }
+
+type RoutePoint = PopularRoute['days'][number]['points'][number]
 
 const FEED_LIKES_KEY = 'progid_feed_likes_map'
 const FEED_IMAGE_CACHE_KEY = 'progid_feed_image_cache_v2'
@@ -73,6 +82,12 @@ const routeDifficultyLabel = (difficulty?: string): string => {
   if (difficulty === 'medium') return 'Средний'
   if (difficulty === 'hard') return 'Сложный'
   return 'Лёгкий'
+}
+
+const feedTypeLabel = (type: FeedPostType): string => {
+  if (type === 'place') return 'Место'
+  if (type === 'moment') return 'Момент'
+  return 'Маршрут'
 }
 
 const declension = (
@@ -118,6 +133,10 @@ const isUtilityPoint = (title?: string): boolean => {
 
 const countRoutePoints = (route: PopularRoute): number => {
   return route.days.reduce((sum, day) => sum + day.points.length, 0)
+}
+
+const uniqueStrings = (items: string[]): string[] => {
+  return Array.from(new Set(items.map(v => v?.trim()).filter(Boolean) as string[]))
 }
 
 const buildRoutePreview = (route: PopularRoute): string[] => {
@@ -167,6 +186,37 @@ const getInitialRouteCoverImage = (
   if (Array.isArray(images) && images.length > 0) return images[0]
 
   return getCityCoverUrl(cityFolder)
+}
+
+const collectRouteImages = (
+  route: PopularRoute,
+  cityFolder: string,
+  imageCache: Record<string, string>
+): string[] => {
+  const result: string[] = []
+
+  const cached = imageCache[route.id]
+  if (cached) result.push(cached)
+
+  const coverImage = (route as any).coverImage as string | undefined
+  const routeImages = (route as any).images as string[] | undefined
+
+  if (coverImage) result.push(coverImage)
+  if (Array.isArray(routeImages)) result.push(...routeImages)
+
+  for (const day of route.days) {
+    for (const point of day.points) {
+      if (Array.isArray(point.images)) {
+        result.push(...point.images)
+      }
+    }
+  }
+
+  if (result.length === 0) {
+    result.push(getCityCoverUrl(cityFolder))
+  }
+
+  return uniqueStrings(result)
 }
 
 const readLikesMap = (): Record<string, number> => {
@@ -350,6 +400,31 @@ const resolveRouteImage = async (
   return null
 }
 
+const buildPlaceDescription = (
+  point: RoutePoint,
+  route: PopularRoute,
+  dayTitle: string
+): string => {
+  if (point.description?.trim()) return point.description.trim()
+  return `${point.title} · ${dayTitle} · из маршрута «${route.title}»`
+}
+
+const buildMomentDescription = (
+  point: RoutePoint,
+  route: PopularRoute,
+  dayTitle: string
+): string => {
+  const pieces = [
+    point.time?.trim(),
+    dayTitle.trim(),
+    route.city.trim(),
+    point.description?.trim(),
+  ].filter(Boolean)
+
+  if (pieces.length > 0) return pieces.join(' · ')
+  return `Момент из маршрута «${route.title}»`
+}
+
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onCreateRoute,
@@ -365,6 +440,7 @@ export const FeedPage: React.FC<Props> = ({
   const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
   const [saveToast, setSaveToast] = useState('')
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
+  const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
 
   useEffect(() => {
     setLikedIds(readLikedPostIds())
@@ -391,43 +467,125 @@ export const FeedPage: React.FC<Props> = ({
 
   const posts = useMemo<FeedPost[]>(() => {
     const allRoutes = Object.values(POPULAR_ROUTES).flat()
+    const mixedPosts: FeedPost[] = []
 
-    return allRoutes
-      .map((route, index) => {
-        const cityFolder = normalizeCityFolder(route.city)
-        const id = `route_post_${route.id}`
-        const pointsCount = countRoutePoints(route)
-        const previewPoints = buildRoutePreview(route)
-        const baseLikes = typeof route.popularity === 'number' ? route.popularity : 0
-        const likes = likesMap[id] ?? Math.max(6, Math.round(baseLikes / 8) || index + 7)
+    allRoutes.forEach((route, routeIndex) => {
+      const cityFolder = normalizeCityFolder(route.city)
+      const routeImages = collectRouteImages(route, cityFolder, imageCache)
+      const routeId = `route_post_${route.id}`
+      const pointsCount = countRoutePoints(route)
+      const previewPoints = buildRoutePreview(route)
+      const baseLikes = typeof route.popularity === 'number' ? route.popularity : 0
+      const routeLikes =
+        likesMap[routeId] ?? Math.max(6, Math.round(baseLikes / 8) || routeIndex + 7)
 
-        return {
-          id,
-          routeId: route.id,
-          city: route.city,
-          cityFolder,
-          title: route.title,
-          description: buildRouteDescription(route),
-          image: getInitialRouteCoverImage(route, cityFolder, imageCache),
-          likes,
-          daysCount: route.daysCount,
-          pointsCount,
-          difficulty: route.difficulty,
-          distanceKm: route.distanceKm,
-          previewPoints,
-          route,
-          createdAt: new Date(Date.now() - index * 1000 * 60 * 60 * 5).toISOString(),
-        }
+      mixedPosts.push({
+        id: routeId,
+        type: 'route',
+        routeId: route.id,
+        city: route.city,
+        cityFolder,
+        title: route.title,
+        description: buildRouteDescription(route),
+        image: routeImages[0],
+        images: routeImages,
+        likes: routeLikes,
+        daysCount: route.daysCount,
+        pointsCount,
+        difficulty: route.difficulty,
+        distanceKm: route.distanceKm,
+        previewPoints,
+        route,
+        createdAt: new Date(Date.now() - routeIndex * 1000 * 60 * 60 * 5).toISOString(),
       })
-      .sort((a, b) => {
-        const aScore = (a.route.popularity ?? 0) + a.likes
-        const bScore = (b.route.popularity ?? 0) + b.likes
-        return bScore - aScore
+
+      let meaningfulIndex = 0
+
+      route.days.forEach((day, dayIndex) => {
+        day.points.forEach((point, pointIndex) => {
+          const title = point.title?.trim() || ''
+          if (!title || isUtilityPoint(title)) return
+
+          const pointImages = uniqueStrings([
+            ...(Array.isArray(point.images) ? point.images : []),
+            ...routeImages.slice(0, 4),
+          ])
+
+          const placeId = `place_post_${route.id}_${dayIndex}_${pointIndex}`
+          const placeLikes =
+            likesMap[placeId] ??
+            Math.max(3, Math.round(baseLikes / 12) + meaningfulIndex + 2)
+
+          mixedPosts.push({
+            id: placeId,
+            type: 'place',
+            routeId: route.id,
+            city: route.city,
+            cityFolder,
+            title,
+            description: buildPlaceDescription(point, route, day.title),
+            image: pointImages[0] || routeImages[0],
+            images: pointImages.length > 0 ? pointImages : routeImages,
+            likes: placeLikes,
+            pointsCount: 1,
+            previewPoints: [route.title, day.title],
+            route,
+            pointTitle: title,
+            pointTime: point.time,
+            sourceRouteTitle: route.title,
+            createdAt: new Date(
+              Date.now() - (routeIndex * 10 + meaningfulIndex + 1) * 1000 * 60 * 60 * 2
+            ).toISOString(),
+          })
+
+          const momentImages = uniqueStrings([
+            ...(Array.isArray(point.images) ? point.images : []),
+            ...routeImages.slice(0, 3),
+          ])
+
+          const momentId = `moment_post_${route.id}_${dayIndex}_${pointIndex}`
+          const momentLikes =
+            likesMap[momentId] ??
+            Math.max(2, Math.round(baseLikes / 14) + meaningfulIndex + 1)
+
+          mixedPosts.push({
+            id: momentId,
+            type: 'moment',
+            routeId: route.id,
+            city: route.city,
+            cityFolder,
+            title: point.time ? `${point.time} · ${title}` : title,
+            description: buildMomentDescription(point, route, day.title),
+            image: momentImages[0] || routeImages[0],
+            images: momentImages.length > 0 ? momentImages : routeImages,
+            likes: momentLikes,
+            previewPoints: [route.title, day.title],
+            route,
+            pointTitle: title,
+            pointTime: point.time,
+            sourceRouteTitle: route.title,
+            createdAt: new Date(
+              Date.now() - (routeIndex * 10 + meaningfulIndex + 1) * 1000 * 60 * 45
+            ).toISOString(),
+          })
+
+          meaningfulIndex += 1
+        })
       })
+    })
+
+    return mixedPosts.sort((a, b) => {
+      const aScore = (a.route.popularity ?? 0) + a.likes
+      const bScore = (b.route.popularity ?? 0) + b.likes
+      return bScore - aScore
+    })
   }, [likesMap, imageCache])
 
   const visiblePosts = useMemo(() => {
-    return posts.filter(post => !failedImages[post.image])
+    return posts.filter(post => {
+      const hasGoodImage = post.images.some(img => !failedImages[img])
+      return hasGoodImage
+    })
   }, [posts, failedImages])
 
   const toggleLike = (postId: string) => {
@@ -460,7 +618,8 @@ export const FeedPage: React.FC<Props> = ({
   }
 
   const handleSaveTrip = (post: FeedPost) => {
-    saveRouteToMyTrips(post.route, post.image)
+    const currentImage = getDisplayedPostImage(post)
+    saveRouteToMyTrips(post.route, currentImage)
     toggleSave(post.id)
     setSaveToast('Маршрут сохранён в «Мои поездки»')
   }
@@ -495,6 +654,7 @@ export const FeedPage: React.FC<Props> = ({
         return {
           ...prev,
           image: resolved,
+          images: uniqueStrings([resolved, ...prev.images]),
         }
       })
     } finally {
@@ -502,9 +662,51 @@ export const FeedPage: React.FC<Props> = ({
     }
   }
 
+  const getSafeImages = (post: FeedPost): string[] => {
+    const imgs = post.images.filter(img => !failedImages[img])
+    return imgs.length > 0 ? imgs : [post.image]
+  }
+
+  const getDisplayedPostImage = (post: FeedPost): string => {
+    const safeImages = getSafeImages(post)
+    const index = imageIndexes[post.id] ?? 0
+    return safeImages[index % safeImages.length]
+  }
+
+  const showPrevImage = (e: React.MouseEvent, post: FeedPost) => {
+    e.stopPropagation()
+    const safeImages = getSafeImages(post)
+    if (safeImages.length <= 1) return
+
+    setImageIndexes(prev => {
+      const current = prev[post.id] ?? 0
+      return {
+        ...prev,
+        [post.id]: (current - 1 + safeImages.length) % safeImages.length,
+      }
+    })
+  }
+
+  const showNextImage = (e: React.MouseEvent, post: FeedPost) => {
+    e.stopPropagation()
+    const safeImages = getSafeImages(post)
+    if (safeImages.length <= 1) return
+
+    setImageIndexes(prev => {
+      const current = prev[post.id] ?? 0
+      return {
+        ...prev,
+        [post.id]: (current + 1) % safeImages.length,
+      }
+    })
+  }
+
   const handleOpenPost = async (post: FeedPost) => {
     setIsAddMenuOpen(false)
-    setActivePost(post)
+    setActivePost({
+      ...post,
+      image: getDisplayedPostImage(post),
+    })
     await tryResolvePostImage(post)
   }
 
@@ -597,7 +799,7 @@ export const FeedPage: React.FC<Props> = ({
       <div className="feed-header">
         <h2>Лента</h2>
         <div className="feed-subtitle">
-          Маршруты, подборки и идеи поездок в формате social travel feed
+          Маршруты, достопримечательности и моменты в формате social travel feed
         </div>
       </div>
 
@@ -606,6 +808,9 @@ export const FeedPage: React.FC<Props> = ({
           const isLiked = likedIds.includes(post.id)
           const isSaved = savedIds.includes(post.id)
           const isImageLoading = loadingImages[post.routeId]
+          const safeImages = getSafeImages(post)
+          const currentImage = getDisplayedPostImage(post)
+          const currentIndex = imageIndexes[post.id] ?? 0
 
           return (
             <button
@@ -616,21 +821,45 @@ export const FeedPage: React.FC<Props> = ({
             >
               <div className="feed-image-wrap">
                 <img
-                  src={post.image}
+                  src={currentImage}
                   alt={post.title}
                   className="feed-image"
                   onError={() => {
-                    setFailedImages(prev => ({ ...prev, [post.image]: true }))
+                    setFailedImages(prev => ({ ...prev, [currentImage]: true }))
                   }}
                 />
 
                 <div className="feed-image-overlay">
-                  <span className="feed-image-chip">Маршрут</span>
+                  <span className="feed-image-chip">{feedTypeLabel(post.type)}</span>
                   <span className="feed-image-chip">{post.city}</span>
                 </div>
 
+                {safeImages.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="feed-carousel-btn left"
+                      onClick={e => showPrevImage(e, post)}
+                    >
+                      ‹
+                    </button>
+
+                    <button
+                      type="button"
+                      className="feed-carousel-btn right"
+                      onClick={e => showNextImage(e, post)}
+                    >
+                      ›
+                    </button>
+
+                    <div className="feed-carousel-counter">
+                      {currentIndex + 1} / {safeImages.length}
+                    </div>
+                  </>
+                )}
+
                 {isImageLoading && (
-                  <div className="feed-image-loader">Подбираем фото маршрута…</div>
+                  <div className="feed-image-loader">Подбираем фото…</div>
                 )}
               </div>
 
@@ -639,17 +868,42 @@ export const FeedPage: React.FC<Props> = ({
                 <div className="feed-description">{post.description}</div>
 
                 <div className="feed-meta-line">
-                  <span>
-                    {post.daysCount} {declension('день', 'дня', 'дней', post.daysCount)}
-                  </span>
-                  <span>•</span>
-                  <span>{post.pointsCount} точек</span>
-                  <span>•</span>
-                  <span>{routeDifficultyLabel(post.difficulty)}</span>
-                  {typeof post.distanceKm !== 'undefined' && (
+                  {post.type === 'route' && typeof post.daysCount !== 'undefined' && (
+                    <>
+                      <span>
+                        {post.daysCount} {declension('день', 'дня', 'дней', post.daysCount)}
+                      </span>
+                      <span>•</span>
+                    </>
+                  )}
+
+                  {post.type === 'route' && typeof post.pointsCount !== 'undefined' && (
+                    <>
+                      <span>{post.pointsCount} точек</span>
+                      <span>•</span>
+                    </>
+                  )}
+
+                  {post.type === 'route' && (
+                    <>
+                      <span>{routeDifficultyLabel(post.difficulty)}</span>
+                      {typeof post.distanceKm !== 'undefined' && (
+                        <>
+                          <span>•</span>
+                          <span>~{post.distanceKm} км</span>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {post.type !== 'route' && post.sourceRouteTitle && (
+                    <span>Из маршрута: {post.sourceRouteTitle}</span>
+                  )}
+
+                  {post.type === 'moment' && post.pointTime && (
                     <>
                       <span>•</span>
-                      <span>~{post.distanceKm} км</span>
+                      <span>{post.pointTime}</span>
                     </>
                   )}
                 </div>
@@ -735,14 +989,14 @@ export const FeedPage: React.FC<Props> = ({
 
               {loadingImages[activePost.routeId] && (
                 <div className="feed-post-image-loader">
-                  Ищем более подходящее фото маршрута…
+                  Ищем более подходящее фото…
                 </div>
               )}
             </div>
 
             <div className="feed-post-body">
               <div className="feed-post-topline">
-                <span className="feed-type">Маршрут</span>
+                <span className="feed-type">{feedTypeLabel(activePost.type)}</span>
                 <span className="feed-city-tag">{activePost.city}</span>
               </div>
 
@@ -750,33 +1004,59 @@ export const FeedPage: React.FC<Props> = ({
               <div className="feed-post-description">{activePost.description}</div>
 
               <div className="feed-post-stats">
-                <div className="feed-post-stat">
-                  <div className="feed-post-stat-value">{activePost.daysCount}</div>
-                  <div className="feed-post-stat-label">
-                    {declension('день', 'дня', 'дней', activePost.daysCount)}
-                  </div>
-                </div>
+                {activePost.type === 'route' ? (
+                  <>
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">{activePost.daysCount ?? '—'}</div>
+                      <div className="feed-post-stat-label">дней</div>
+                    </div>
 
-                <div className="feed-post-stat">
-                  <div className="feed-post-stat-value">{activePost.pointsCount}</div>
-                  <div className="feed-post-stat-label">точек</div>
-                </div>
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">{activePost.pointsCount ?? '—'}</div>
+                      <div className="feed-post-stat-label">точек</div>
+                    </div>
 
-                <div className="feed-post-stat">
-                  <div className="feed-post-stat-value">
-                    {routeDifficultyLabel(activePost.difficulty)}
-                  </div>
-                  <div className="feed-post-stat-label">сложность</div>
-                </div>
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">
+                        {routeDifficultyLabel(activePost.difficulty)}
+                      </div>
+                      <div className="feed-post-stat-label">сложность</div>
+                    </div>
 
-                <div className="feed-post-stat">
-                  <div className="feed-post-stat-value">
-                    {typeof activePost.distanceKm !== 'undefined'
-                      ? `~${activePost.distanceKm}`
-                      : '—'}
-                  </div>
-                  <div className="feed-post-stat-label">км</div>
-                </div>
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">
+                        {typeof activePost.distanceKm !== 'undefined'
+                          ? `~${activePost.distanceKm}`
+                          : '—'}
+                      </div>
+                      <div className="feed-post-stat-label">км</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">{feedTypeLabel(activePost.type)}</div>
+                      <div className="feed-post-stat-label">тип поста</div>
+                    </div>
+
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">{activePost.city}</div>
+                      <div className="feed-post-stat-label">город</div>
+                    </div>
+
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">{activePost.pointTime || '—'}</div>
+                      <div className="feed-post-stat-label">время</div>
+                    </div>
+
+                    <div className="feed-post-stat">
+                      <div className="feed-post-stat-value">
+                        {activePost.sourceRouteTitle || '—'}
+                      </div>
+                      <div className="feed-post-stat-label">источник</div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {activePost.previewPoints.length > 0 && (
