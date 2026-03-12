@@ -66,7 +66,6 @@ type SavedTrip = {
 
 const LOCAL_TRIPS_KEY = 'progid_my_trips'
 
-// Нормализуем строку города к нашим ключам popularRoutes
 const normalizeCityKey = (city: string): string => {
   const c = city.toLowerCase().trim()
 
@@ -86,7 +85,6 @@ const normalizeCityKey = (city: string): string => {
   return city
 }
 
-// Нормализуем строку города к имени папки в бакете
 const normalizeCityFolder = (city: string): string => {
   const c = city.toLowerCase().trim()
 
@@ -131,7 +129,7 @@ const API_BASE =
 
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://storage.yandexcloud.net/progid-images'
+  'https://storage.yandexcloud.net/progid-images-novichihin'
 
 const getCityCoverUrl = (cityFolder: string): string =>
   `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
@@ -158,9 +156,7 @@ const loadCloudPointImages = async (
     const url = `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}/image-${i}.jpg`
     // eslint-disable-next-line no-await-in-loop
     const ok = await probeImageUrl(url)
-    if (ok) {
-      goodUrls.push(url)
-    }
+    if (ok) goodUrls.push(url)
   }
 
   return goodUrls
@@ -169,12 +165,7 @@ const loadCloudPointImages = async (
 const extractPhotosFromApi = (data: any): string[] => {
   if (!data || typeof data !== 'object') return []
 
-  const candidates: unknown[] = [
-    data.photos,
-    data.publicUrls,
-    data.urls,
-    data.images
-  ]
+  const candidates: unknown[] = [data.photos, data.publicUrls, data.urls, data.images]
 
   for (const c of candidates) {
     if (Array.isArray(c)) {
@@ -196,7 +187,7 @@ const extractPhotosFromApi = (data: any): string[] => {
 }
 
 const prepareYandexEmbed = (raw: string): string => {
-  let urlStr = raw.startsWith('https://yandex.ru/maps/')
+  const urlStr = raw.startsWith('https://yandex.ru/maps/')
     ? raw.replace('https://yandex.ru/maps/', 'https://yandex.ru/map-widget/v1/')
     : raw
 
@@ -282,9 +273,7 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
     for (const point of day.points) {
       const title = point.title?.trim()
       if (!title || isUtilityPoint(title)) continue
-      if (!points.includes(title)) {
-        points.push(title)
-      }
+      if (!points.includes(title)) points.push(title)
       if (points.length >= 3) return points
     }
   }
@@ -324,7 +313,7 @@ const buildWikiCandidates = (
   const title = normalizeText(rawTitle)
   const city = normalizeText(cityTitle)
 
-  let cleaned = title
+  const cleaned = title
     .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
     .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
     .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
@@ -426,13 +415,7 @@ const fetchWikiBySearch = async (
     const searchRes = await fetch(searchUrl)
     if (!searchRes.ok) return null
 
-    const searchData = (await searchRes.json()) as [
-      string,
-      string[],
-      string[],
-      string[]
-    ]
-
+    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
     const foundTitle = searchData[1]?.[0]
     if (!foundTitle) return null
 
@@ -519,11 +502,16 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
   const [mainImageIndex, setMainImageIndex] = useState<number>(0)
   const [routeImages, setRouteImages] = useState<string[]>([])
+  const [failedRouteImages, setFailedRouteImages] = useState<Record<string, boolean>>({})
 
   const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
   const [pointImages, setPointImages] = useState<string[]>([])
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
   const [isPointImagesLoading, setIsPointImagesLoading] = useState<boolean>(false)
+  const [failedPointImages, setFailedPointImages] = useState<Record<string, boolean>>({})
+
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
+  const [zoomedImageTitle, setZoomedImageTitle] = useState<string>('')
 
   const [wikiInfo, setWikiInfo] = useState<WikiState>({
     loading: false,
@@ -533,26 +521,33 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   })
   const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
 
-  const [pointPhotosCache, setPointPhotosCache] = useState<
-    Record<string, string[]>
-  >({})
-
+  const [pointPhotosCache, setPointPhotosCache] = useState<Record<string, string[]>>({})
   const [viewMode, setViewMode] = useState<ViewMode>('routes')
   const [hiddenPoints, setHiddenPoints] = useState<Record<number, number[]>>({})
-  const [extraPoints, setExtraPoints] = useState<Record<number, RoutePoint[]>>(
-    {}
-  )
+  const [extraPoints, setExtraPoints] = useState<Record<number, RoutePoint[]>>({})
   const [isAddPlaceOpen, setIsAddPlaceOpen] = useState(false)
   const [placesQuery, setPlacesQuery] = useState('')
   const [showOnlyMeaningfulPlaces, setShowOnlyMeaningfulPlaces] = useState(true)
   const [saveMessage, setSaveMessage] = useState('')
 
+  const visibleRouteImages = useMemo(
+    () => routeImages.filter(img => !failedRouteImages[img]),
+    [routeImages, failedRouteImages]
+  )
+
+  const visiblePointImages = useMemo(
+    () => pointImages.filter(img => !failedPointImages[img]),
+    [pointImages, failedPointImages]
+  )
+
   useEffect(() => {
     if (!activeRoute) {
       setMainImageIndex(0)
       setRouteImages([])
+      setFailedRouteImages({})
       setActivePoint(null)
       setPointImages([])
+      setFailedPointImages({})
       setActiveImageIndex(0)
       setIsPointImagesLoading(false)
       setWikiInfo({
@@ -582,6 +577,37 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     const timer = setTimeout(() => setSaveMessage(''), 2200)
     return () => clearTimeout(timer)
   }, [saveMessage])
+
+  useEffect(() => {
+    if (visibleRouteImages.length === 0) {
+      setMainImageIndex(0)
+      return
+    }
+    if (mainImageIndex >= visibleRouteImages.length) {
+      setMainImageIndex(0)
+    }
+  }, [visibleRouteImages.length, mainImageIndex])
+
+  useEffect(() => {
+    if (visiblePointImages.length === 0) {
+      setActiveImageIndex(0)
+      return
+    }
+    if (activeImageIndex >= visiblePointImages.length) {
+      setActiveImageIndex(0)
+    }
+  }, [visiblePointImages.length, activeImageIndex])
+
+  useEffect(() => {
+    const shouldLock = !!activePoint || !!zoomedImage
+    const prevOverflow = document.body.style.overflow
+    if (shouldLock) {
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.body.style.overflow = prevOverflow
+    }
+  }, [activePoint, zoomedImage])
 
   const visibleRoutes = useMemo(() => {
     let result = [...routes]
@@ -672,6 +698,16 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return set.size
   }, [routes])
 
+  const openZoomImage = (src: string, title: string) => {
+    setZoomedImage(src)
+    setZoomedImageTitle(title)
+  }
+
+  const closeZoomImage = () => {
+    setZoomedImage(null)
+    setZoomedImageTitle('')
+  }
+
   const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
@@ -684,9 +720,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     index: number
   ) => {
     const isExtra = index < 0
-    const cacheKey = isExtra
-      ? `extra_${route.id}_${Math.abs(index)}`
-      : `${route.id}_${index}`
+    const cacheKey = isExtra ? `extra_${route.id}_${Math.abs(index)}` : `${route.id}_${index}`
 
     setActiveRoute(route)
     setActivePoint({
@@ -696,6 +730,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     })
     setActiveImageIndex(0)
     setIsPointImagesLoading(true)
+    setFailedPointImages({})
 
     const baseImages = Array.isArray(point.images) ? point.images : []
     const cached = pointPhotosCache[cacheKey] ?? []
@@ -928,17 +963,17 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   const showPrevImage = () => {
-    if (pointImages.length === 0) return
+    if (visiblePointImages.length === 0) return
     setActiveImageIndex(prev => {
-      const len = pointImages.length
+      const len = visiblePointImages.length
       return (prev - 1 + len) % len
     })
   }
 
   const showNextImage = () => {
-    if (pointImages.length === 0) return
+    if (visiblePointImages.length === 0) return
     setActiveImageIndex(prev => {
-      const len = pointImages.length
+      const len = visiblePointImages.length
       return (prev + 1) % len
     })
   }
@@ -1029,6 +1064,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     setHiddenPoints({})
     setExtraPoints({})
     setIsAddPlaceOpen(false)
+    setFailedRouteImages({})
 
     const localImages: string[] = []
     if ((route as any).coverImage) {
@@ -1058,6 +1094,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const handleClosePointModal = () => {
     setActivePoint(null)
     setPointImages([])
+    setFailedPointImages({})
     setActiveImageIndex(0)
     setIsPointImagesLoading(false)
     setWikiInfo({
@@ -1086,7 +1123,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       estimatedBudget: (activeRoute as any).estimatedBudget,
       season: (activeRoute as any).season,
       coverImage:
-        routeImages[0] ||
+        visibleRouteImages[0] ||
         ((activeRoute as any).coverImage as string | undefined) ||
         cityCoverUrl,
       hiddenPoints,
@@ -1511,42 +1548,50 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   </div>
                 </div>
 
-                {routeImages.length > 0 && (
+                {visibleRouteImages.length > 0 && (
                   <div className="route-main-carousel">
                     <div className="route-main-carousel-inner">
-                      {routeImages.length > 1 && (
+                      {visibleRouteImages.length > 1 && (
                         <button
                           type="button"
                           className="route-main-carousel-btn left"
-                          onClick={() => showPrevMainImage(routeImages.length)}
+                          onClick={() => showPrevMainImage(visibleRouteImages.length)}
                         >
                           ◀
                         </button>
                       )}
 
                       <img
-                        src={routeImages[mainImageIndex % routeImages.length]}
+                        src={visibleRouteImages[mainImageIndex % visibleRouteImages.length]}
                         alt={activeRoute.title}
                         className="route-main-carousel-image"
-                        onError={e => {
-                          e.currentTarget.style.display = 'none'
+                        onClick={() =>
+                          openZoomImage(
+                            visibleRouteImages[mainImageIndex % visibleRouteImages.length],
+                            activeRoute.title
+                          )
+                        }
+                        onError={() => {
+                          const broken =
+                            visibleRouteImages[mainImageIndex % visibleRouteImages.length]
+                          setFailedRouteImages(prev => ({ ...prev, [broken]: true }))
                         }}
                       />
 
-                      {routeImages.length > 1 && (
+                      {visibleRouteImages.length > 1 && (
                         <button
                           type="button"
                           className="route-main-carousel-btn right"
-                          onClick={() => showNextMainImage(routeImages.length)}
+                          onClick={() => showNextMainImage(visibleRouteImages.length)}
                         >
                           ▶
                         </button>
                       )}
                     </div>
 
-                    {routeImages.length > 1 && (
+                    {visibleRouteImages.length > 1 && (
                       <div className="route-main-carousel-dots">
-                        {routeImages.map((img, idx) => (
+                        {visibleRouteImages.map((img, idx) => (
                           <button
                             key={`${img}-${idx}`}
                             type="button"
@@ -1829,14 +1874,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               <div className="point-modal-day">{activePoint.dayTitle}</div>
             </div>
 
-            {isPointImagesLoading && pointImages.length === 0 && (
+            {isPointImagesLoading && visiblePointImages.length === 0 && (
               <div className="point-modal-loading">Загружаем фотографии места…</div>
             )}
 
-            {pointImages.length > 0 && (
+            {visiblePointImages.length > 0 && (
               <div className="point-modal-carousel">
                 <div className="point-modal-carousel-inner">
-                  {pointImages.length > 1 && (
+                  {visiblePointImages.length > 1 && (
                     <button
                       type="button"
                       className="point-modal-carousel-btn left"
@@ -1847,15 +1892,23 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   )}
 
                   <img
-                    src={pointImages[activeImageIndex % pointImages.length]}
+                    src={visiblePointImages[activeImageIndex % visiblePointImages.length]}
                     alt={activePoint.point.title}
                     className="point-modal-image"
-                    onError={e => {
-                      e.currentTarget.style.display = 'none'
+                    onClick={() =>
+                      openZoomImage(
+                        visiblePointImages[activeImageIndex % visiblePointImages.length],
+                        activePoint.point.title
+                      )
+                    }
+                    onError={() => {
+                      const broken =
+                        visiblePointImages[activeImageIndex % visiblePointImages.length]
+                      setFailedPointImages(prev => ({ ...prev, [broken]: true }))
                     }}
                   />
 
-                  {pointImages.length > 1 && (
+                  {visiblePointImages.length > 1 && (
                     <button
                       type="button"
                       className="point-modal-carousel-btn right"
@@ -1866,9 +1919,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                   )}
                 </div>
 
-                {pointImages.length > 1 && (
+                {visiblePointImages.length > 1 && (
                   <div className="point-modal-thumbs">
-                    {pointImages.map((img, idx) => (
+                    {visiblePointImages.map((img, idx) => (
                       <button
                         key={`${img}-${idx}`}
                         type="button"
@@ -1879,7 +1932,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                         }
                         onClick={() => setActiveImageIndex(idx)}
                       >
-                        <img src={img} alt={`${activePoint.point.title} ${idx + 1}`} />
+                        <img
+                          src={img}
+                          alt={`${activePoint.point.title} ${idx + 1}`}
+                          onError={() => {
+                            setFailedPointImages(prev => ({ ...prev, [img]: true }))
+                          }}
+                        />
                       </button>
                     ))}
                   </div>
@@ -1887,7 +1946,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               </div>
             )}
 
-            {!isPointImagesLoading && pointImages.length === 0 && (
+            {!isPointImagesLoading && visiblePointImages.length === 0 && (
               <div className="point-modal-no-images">
                 Пока нет фотографий этого места. Ты можешь добавить их сам.
               </div>
@@ -1935,6 +1994,32 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {zoomedImage && (
+        <div
+          className="image-zoom-backdrop"
+          onClick={closeZoomImage}
+        >
+          <div
+            className="image-zoom-modal"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="image-zoom-close"
+              onClick={closeZoomImage}
+            >
+              ✕
+            </button>
+
+            <img
+              src={zoomedImage}
+              alt={zoomedImageTitle}
+              className="image-zoom-img"
+            />
           </div>
         </div>
       )}
