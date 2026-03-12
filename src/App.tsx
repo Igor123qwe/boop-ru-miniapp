@@ -1,89 +1,40 @@
-// src/App.tsx
-import React, { useEffect, useMemo, useState } from 'react'
-import { useTelegramWebApp } from './hooks/useTelegramWebApp'
-import { api } from './api'
+import React, { useState } from 'react'
 import type { AppUser, TripTemplate } from './types'
 import { Layout } from './components/Layout'
-import { OnboardingPage } from './pages/OnboardingPage'
-import { TripsListPage } from './pages/TripsListPage'
+import { HomePage } from './pages/HomePage'
+import { FeedPage } from './pages/FeedPage'
+import { ProfilePage } from './pages/ProfilePage'
 import { TripDetailPage } from './pages/TripDetailPage'
 import { TripCreatePage } from './pages/TripCreatePage'
 import { MyTripsPage } from './pages/MyTripsPage'
 import { PopularRoutesPage } from './pages/PopularRoutesPage'
+import './App.css'
 
-// все экраны приложения
 type Page =
-  | 'onboarding'
-  | 'tripsList'
+  | 'home'
+  | 'feed'
   | 'tripDetail'
   | 'tripCreate'
   | 'myTrips'
   | 'popularRoutes'
+  | 'profile'
 
 const DEMO_USER: AppUser = {
-  id: 'local-demo-user',
+  id: 'web-demo-user',
   telegramId: 0,
-  firstName: 'Гость',
+  firstName: 'Игорь',
   lastName: '',
-  username: 'guest',
+  username: 'local-user',
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 }
 
 export const App: React.FC = () => {
-  const { tgUser, isReady } = useTelegramWebApp()
-
-  const [appUser, setAppUser] = useState<AppUser | null>(null)
-  const [currentPage, setCurrentPage] = useState<Page>('onboarding')
+  const [currentPage, setCurrentPage] = useState<Page>('home')
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
-  const [selectedCity, setSelectedCity] = useState<string | null>(null)
+  const [selectedCity, setSelectedCity] = useState<string>('Калининград')
   const [trips, setTrips] = useState<TripTemplate[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const effectiveUser = useMemo<AppUser>(() => {
-    return appUser ?? DEMO_USER
-  }, [appUser])
-
-  // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
-  useEffect(() => {
-    if (!isReady) return
-
-    // если приложение открыто НЕ из Telegram —
-    // даём открыть обычный интерфейс в браузере
-    if (!tgUser) {
-      setAppUser(null)
-      setTrips([])
-      setError(null)
-      setCurrentPage('tripsList')
-      return
-    }
-
-    const init = async () => {
-      try {
-        setIsLoading(true)
-        setError(null)
-
-        const user = await api.getOrCreateUserFromTelegram(tgUser.id)
-        setAppUser(user)
-
-        const list = await api.listTrips()
-        setTrips(list)
-
-        setCurrentPage('tripsList')
-      } catch (e) {
-        console.error(e)
-        setError('Не удалось загрузить данные. Попробуйте ещё раз.')
-        setCurrentPage('tripsList')
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    void init()
-  }, [isReady, tgUser])
-
-  // ===== ХЕНДЛЕРЫ НАВИГАЦИИ =====
   const goToTripDetail = (tripId: string) => {
     setSelectedTripId(tripId)
     setCurrentPage('tripDetail')
@@ -108,90 +59,99 @@ export const App: React.FC = () => {
     setCurrentPage('popularRoutes')
   }
 
-  if (!isReady) {
-    return (
-      <div
-        style={{
-          padding: 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-        }}
-      >
-        Загрузка приложения…
-      </div>
-    )
-  }
-
   return (
-    <Layout
-      onGoToTripsList={() => setCurrentPage('tripsList')}
-      onGoToMyTrips={handleOpenMyTrips}
-      onCreateTrip={handleCreateTripClick}
-    >
-      {error && (
-        <div
-          style={{
-            margin: '8px 16px',
-            padding: '8px 12px',
-            borderRadius: 12,
-            backgroundColor: 'rgba(255,0,0,0.06)',
-            fontSize: 13,
+    <>
+      <Layout
+        onGoToTripsList={() => setCurrentPage('home')}
+        onGoToMyTrips={handleOpenMyTrips}
+        onCreateTrip={handleCreateTripClick}
+      >
+        {currentPage === 'home' && (
+          <HomePage
+            onOpenCity={handleOpenPopularRoutes}
+            onOpenFeed={() => setCurrentPage('feed')}
+          />
+        )}
+
+        {currentPage === 'feed' && (
+          <FeedPage onOpenRoutes={handleOpenPopularRoutes} />
+        )}
+
+        {currentPage === 'popularRoutes' && (
+          <PopularRoutesPage
+            city={selectedCity}
+            onBack={() => setCurrentPage('home')}
+          />
+        )}
+
+        {currentPage === 'tripDetail' && selectedTripId && (
+          <TripDetailPage
+            tripId={selectedTripId}
+            appUser={DEMO_USER}
+            onCopySuccess={() => setCurrentPage('myTrips')}
+          />
+        )}
+
+        {currentPage === 'tripCreate' && (
+          <TripCreatePage author={DEMO_USER} onCreated={handleTripCreated} />
+        )}
+
+        {currentPage === 'myTrips' && (
+          <MyTripsPage onBack={() => setCurrentPage('home')} />
+        )}
+
+        {currentPage === 'profile' && <ProfilePage />}
+      </Layout>
+
+      <nav className="web-bottom-nav">
+        <button
+          type="button"
+          className={currentPage === 'home' ? 'active' : ''}
+          onClick={() => setCurrentPage('home')}
+        >
+          <span>🏠</span>
+          <span>Главная</span>
+        </button>
+
+        <button
+          type="button"
+          className={currentPage === 'feed' ? 'active' : ''}
+          onClick={() => setCurrentPage('feed')}
+        >
+          <span>🌍</span>
+          <span>Лента</span>
+        </button>
+
+        <button
+          type="button"
+          className={currentPage === 'popularRoutes' ? 'active' : ''}
+          onClick={() => {
+            setSelectedCity('Калининград')
+            setCurrentPage('popularRoutes')
           }}
         >
-          {error}
-        </div>
-      )}
+          <span>🗺</span>
+          <span>Маршруты</span>
+        </button>
 
-      {isLoading && currentPage === 'tripsList' && trips.length === 0 && (
-        <div style={{ padding: 16 }}>Загружаем маршруты…</div>
-      )}
+        <button
+          type="button"
+          className={currentPage === 'myTrips' ? 'active' : ''}
+          onClick={() => setCurrentPage('myTrips')}
+        >
+          <span>💾</span>
+          <span>Поездки</span>
+        </button>
 
-      {currentPage === 'onboarding' && (
-        <OnboardingPage
-          tgUser={tgUser}
-          onContinue={() => setCurrentPage('tripsList')}
-        />
-      )}
-
-      {currentPage === 'tripsList' && (
-        <TripsListPage
-          trips={trips}
-          onOpenTrip={goToTripDetail}
-          onCreateTrip={handleCreateTripClick}
-          onOpenPopular={handleOpenPopularRoutes}
-        />
-      )}
-
-      {currentPage === 'popularRoutes' && selectedCity && (
-        <PopularRoutesPage
-          city={selectedCity}
-          onBack={() => setCurrentPage('tripsList')}
-        />
-      )}
-
-      {currentPage === 'tripDetail' && selectedTripId && (
-        <TripDetailPage
-          tripId={selectedTripId}
-          appUser={effectiveUser}
-          onCopySuccess={() => setCurrentPage('myTrips')}
-        />
-      )}
-
-      {currentPage === 'tripCreate' && (
-        <TripCreatePage
-          author={effectiveUser}
-          onCreated={handleTripCreated}
-        />
-      )}
-
-      {currentPage === 'myTrips' && (
-        <MyTripsPage
-          onBack={() => setCurrentPage('tripsList')}
-        />
-      )}
-    </Layout>
+        <button
+          type="button"
+          className={currentPage === 'profile' ? 'active' : ''}
+          onClick={() => setCurrentPage('profile')}
+        >
+          <span>👤</span>
+          <span>Профиль</span>
+        </button>
+      </nav>
+    </>
   )
 }

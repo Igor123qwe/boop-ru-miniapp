@@ -1,0 +1,113 @@
+.feed-page {
+  padding: 16px 16px 96px;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.feed-header {
+  margin-bottom: 14px;
+}
+
+.feed-header h2 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.feed-subtitle {
+  margin-top: 6px;
+  color: #64748b;
+}
+
+.feed-list {
+  display: grid;
+  gap: 14px;
+}
+
+.feed-card {
+  background: white;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
+}
+
+.feed-image {
+  width: 100%;
+  display: block;
+  max-height: 280px;
+  object-fit: cover;
+  background: #f8fafc;
+}
+
+.feed-content {
+  padding: 16px;
+}
+
+.feed-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.feed-type,
+.feed-city-tag {
+  font-size: 12px;
+  color: #64748b;
+  background: rgba(15, 23, 42, 0.05);
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.feed-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.feed-description {
+  margin-top: 8px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.feed-author {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.feed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.feed-action-btn {
+  border: none;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.feed-action-btn.active {
+  background: #0f172a;
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .feed-page {
+    padding: 12px 12px 92px;
+  }
+
+  .feed-image {
+    max-height: 220px;
+  }
+
+  .feed-title {
+    font-size: 18px;
+  }
+}
