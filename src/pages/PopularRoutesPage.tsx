@@ -166,39 +166,21 @@ const slugify = (value: string): string => {
     .replace(/_+/g, '_')
 }
 
-const buildPointSlug = (title?: string, fallback = 'point'): string => {
+const buildPlaceSlug = (title?: string, fallback = 'place'): string => {
   const clean = cleanupPlaceTitle(title || '')
   const slug = slugify(clean)
   return slug || fallback
 }
 
-const buildPointCacheKey = (
-  routeId: string,
-  dayIndex: number,
-  pointIndex: number,
-  title?: string
-): string => {
-  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
-  return `${routeId}_${dayIndex}_${pointIndex}_${pointSlug}`
+const buildPlaceCacheKey = (city: string, title?: string): string => {
+  const cityKey = slugify(normalizeCityFolder(city || 'city'))
+  const placeSlug = buildPlaceSlug(title, 'place')
+  return `${cityKey}_${placeSlug}`
 }
 
-const buildExactCloudPrefix = (
-  cityFolder: string,
-  routeId: string,
-  dayIndex: number,
-  pointIndex: number,
-  title?: string
-): string => {
-  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
-  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/day_${dayIndex}/point_${pointIndex}_${pointSlug}`
-}
-
-const buildLegacyCloudPrefix = (
-  cityFolder: string,
-  routeId: string,
-  pointIndex: number
-): string => {
-  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}`
+const buildPlaceCloudPrefix = (cityFolder: string, title?: string): string => {
+  const placeSlug = buildPlaceSlug(title, 'place')
+  return `${CLOUD_BASE_URL}/${cityFolder}/places/${placeSlug}`
 }
 
 const probeImageUrl = (url: string): Promise<boolean> => {
@@ -212,34 +194,19 @@ const probeImageUrl = (url: string): Promise<boolean> => {
 
 const loadCloudPointImages = async (
   cityFolder: string,
-  routeId: string,
-  dayIndex: number,
-  pointIndex: number,
   title?: string
 ): Promise<string[]> => {
-  const exactUrls: string[] = []
-  const exactPrefix = buildExactCloudPrefix(cityFolder, routeId, dayIndex, pointIndex, title)
+  const urls: string[] = []
+  const prefix = buildPlaceCloudPrefix(cityFolder, title)
 
   for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${exactPrefix}/image-${i}.jpg`
+    const url = `${prefix}/image-${i}.jpg`
     // eslint-disable-next-line no-await-in-loop
     const ok = await probeImageUrl(url)
-    if (ok) exactUrls.push(url)
+    if (ok) urls.push(url)
   }
 
-  if (exactUrls.length > 0) return exactUrls
-
-  const legacyUrls: string[] = []
-  const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
-
-  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${legacyPrefix}/image-${i}.jpg`
-    // eslint-disable-next-line no-await-in-loop
-    const ok = await probeImageUrl(url)
-    if (ok) legacyUrls.push(url)
-  }
-
-  return legacyUrls
+  return urls
 }
 
 const extractPhotosFromApi = (data: any): string[] => {
@@ -816,10 +783,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     },
     pointIndex: number
   ) => {
-    const isExtra = pointIndex < 0
-    const cacheKey = isExtra
-      ? `extra_${buildPointCacheKey(route.id, dayIndex, Math.abs(pointIndex), point.title)}`
-      : buildPointCacheKey(route.id, dayIndex, pointIndex, point.title)
+    const placeCacheKey = buildPlaceCacheKey(route.city || cityTitle, point.title)
 
     setActiveRoute(route)
     setActivePoint({
@@ -834,7 +798,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setFailedPointImages({})
 
     const baseImages = Array.isArray(point.images) ? point.images : []
-    const cached = pointPhotosCache[cacheKey] ?? []
+    const cached = pointPhotosCache[placeCacheKey] ?? []
 
     const buildImages = (extra: string[] = []) => {
       const all = [...baseImages, ...extra]
@@ -851,37 +815,21 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       }
     }
 
-    if (isExtra) {
-      setWikiInfo({
-        loading: true,
-        error: false,
-        extract: null,
-        url: null
-      })
-      setIsWikiVisible(true)
-      if (baseImages.length === 0) {
-        setIsPointImagesLoading(false)
-      }
-      return
-    }
+    setWikiInfo({
+      loading: true,
+      error: false,
+      extract: null,
+      url: null
+    })
+    setIsWikiVisible(true)
 
     if (cached.length > 0) {
-      setWikiInfo({
-        loading: true,
-        error: false,
-        extract: null,
-        url: null
-      })
-      setIsWikiVisible(true)
       return
     }
 
     const params = new URLSearchParams({
-      routeId: route.id,
-      dayIndex: String(dayIndex),
-      pointIndex: String(pointIndex),
       city: route.city || cityTitle,
-      title: point.title
+      title: cleanupPlaceTitle(point.title || '')
     })
 
     try {
@@ -890,7 +838,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       if (remotePhotos.length > 0) {
         setPointPhotosCache(prev => ({
           ...prev,
-          [cacheKey]: remotePhotos
+          [placeCacheKey]: remotePhotos
         }))
 
         setPointImages(prev => {
@@ -903,7 +851,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       console.error('backend point photos load error', e)
     }
 
-    loadCloudPointImages(cityFolder, route.id, dayIndex, pointIndex, point.title)
+    loadCloudPointImages(cityFolder, point.title)
       .then(cloudPhotos => {
         if (!cloudPhotos || cloudPhotos.length === 0) {
           if (baseImages.length === 0) {
@@ -913,11 +861,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         }
 
         setPointPhotosCache(prev => {
-          const prevCached = prev[cacheKey] ?? []
+          const prevCached = prev[placeCacheKey] ?? []
           const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
           return {
             ...prev,
-            [cacheKey]: merged
+            [placeCacheKey]: merged
           }
         })
 
@@ -931,14 +879,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         console.error('cloud photos load error', err)
         setIsPointImagesLoading(false)
       })
-
-    setWikiInfo({
-      loading: true,
-      error: false,
-      extract: null,
-      url: null
-    })
-    setIsWikiVisible(true)
   }
 
   const handleCreateCustomRoute = () => {
