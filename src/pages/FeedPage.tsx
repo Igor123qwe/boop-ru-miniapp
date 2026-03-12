@@ -11,6 +11,8 @@ import './FeedPage.css'
 type Props = {
   onOpenRoutes: (city: string, routeId?: string) => void
   onCreateRoute?: () => void
+  onCreatePlace?: () => void
+  onCreateMoment?: () => void
 }
 
 type FeedPost = {
@@ -348,7 +350,12 @@ const resolveRouteImage = async (
   return null
 }
 
-export const FeedPage: React.FC<Props> = ({ onOpenRoutes, onCreateRoute }) => {
+export const FeedPage: React.FC<Props> = ({
+  onOpenRoutes,
+  onCreateRoute,
+  onCreatePlace,
+  onCreateMoment,
+}) => {
   const [likedIds, setLikedIds] = useState<string[]>([])
   const [savedIds, setSavedIds] = useState<string[]>([])
   const [likesMap, setLikesMap] = useState<Record<string, number>>({})
@@ -357,6 +364,7 @@ export const FeedPage: React.FC<Props> = ({ onOpenRoutes, onCreateRoute }) => {
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
   const [saveToast, setSaveToast] = useState('')
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
 
   useEffect(() => {
     setLikedIds(readLikedPostIds())
@@ -495,6 +503,7 @@ export const FeedPage: React.FC<Props> = ({ onOpenRoutes, onCreateRoute }) => {
   }
 
   const handleOpenPost = async (post: FeedPost) => {
+    setIsAddMenuOpen(false)
     setActivePost(post)
     await tryResolvePostImage(post)
   }
@@ -507,21 +516,69 @@ export const FeedPage: React.FC<Props> = ({ onOpenRoutes, onCreateRoute }) => {
         <div className="feed-compose-left">
           <div className="feed-compose-avatar">🧭</div>
 
-          <button
-            type="button"
-            className="feed-compose-main-btn"
-            onClick={() => onCreateRoute?.()}
-          >
-            + Добавить маршрут
-          </button>
+          <div className="feed-compose-menu-wrap">
+            <button
+              type="button"
+              className="feed-compose-main-btn"
+              onClick={() => setIsAddMenuOpen(prev => !prev)}
+            >
+              + Добавить
+            </button>
+
+            {isAddMenuOpen && (
+              <div className="feed-add-menu">
+                <button
+                  type="button"
+                  className="feed-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false)
+                    onCreateRoute?.()
+                  }}
+                >
+                  <div className="feed-add-menu-title">Маршрут</div>
+                  <div className="feed-add-menu-subtitle">
+                    Полноценный маршрут по дням и точкам
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className="feed-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false)
+                    onCreatePlace?.()
+                  }}
+                >
+                  <div className="feed-add-menu-title">Достопримечательность</div>
+                  <div className="feed-add-menu-subtitle">
+                    Одно место с фото, описанием и адресом
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className="feed-add-menu-item"
+                  onClick={() => {
+                    setIsAddMenuOpen(false)
+                    onCreateMoment?.()
+                  }}
+                >
+                  <div className="feed-add-menu-title">Момент</div>
+                  <div className="feed-add-menu-subtitle">
+                    Фото, координаты или адрес, короткое описание как пост
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="feed-compose-actions">
           <button
             type="button"
             className="feed-compose-icon-btn"
-            title="Создать маршрут"
-            onClick={() => onCreateRoute?.()}
+            title="Добавить"
+            onClick={() => setIsAddMenuOpen(prev => !prev)}
           >
             ＋
           </button>
