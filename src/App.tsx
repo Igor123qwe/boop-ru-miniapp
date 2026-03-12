@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useTelegramWebApp } from './hooks/useTelegramWebApp'
 import { api } from './api'
 import type { AppUser, TripTemplate } from './types'
@@ -20,6 +20,16 @@ type Page =
   | 'myTrips'
   | 'popularRoutes'
 
+const DEMO_USER: AppUser = {
+  id: 'local-demo-user',
+  telegramId: 0,
+  firstName: 'Гость',
+  lastName: '',
+  username: 'guest',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+}
+
 export const App: React.FC = () => {
   const { tgUser, isReady } = useTelegramWebApp()
 
@@ -31,15 +41,21 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const effectiveUser = useMemo<AppUser>(() => {
+    return appUser ?? DEMO_USER
+  }, [appUser])
+
   // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
   useEffect(() => {
     if (!isReady) return
 
-    // если приложение открыто НЕ из Telegram — оставляем только онбординг
+    // если приложение открыто НЕ из Telegram —
+    // даём открыть обычный интерфейс в браузере
     if (!tgUser) {
       setAppUser(null)
       setTrips([])
-      setCurrentPage('onboarding')
+      setError(null)
+      setCurrentPage('tripsList')
       return
     }
 
@@ -54,12 +70,11 @@ export const App: React.FC = () => {
         const list = await api.listTrips()
         setTrips(list)
 
-        // после загрузки данных показываем экран со списком маршрутов
         setCurrentPage('tripsList')
       } catch (e) {
         console.error(e)
         setError('Не удалось загрузить данные. Попробуйте ещё раз.')
-        setCurrentPage('onboarding')
+        setCurrentPage('tripsList')
       } finally {
         setIsLoading(false)
       }
@@ -88,13 +103,11 @@ export const App: React.FC = () => {
     setCurrentPage('myTrips')
   }
 
-  // открыть список популярных маршрутов по выбранному городу
   const handleOpenPopularRoutes = (city: string) => {
     setSelectedCity(city)
     setCurrentPage('popularRoutes')
   }
 
-  // пока Telegram WebApp не готов — просто сплэш
   if (!isReady) {
     return (
       <div
@@ -112,14 +125,12 @@ export const App: React.FC = () => {
     )
   }
 
-  // ===== ОСНОВНАЯ РАЗМЕТКА =====
   return (
     <Layout
       onGoToTripsList={() => setCurrentPage('tripsList')}
       onGoToMyTrips={handleOpenMyTrips}
       onCreateTrip={handleCreateTripClick}
     >
-      {/* глобальная ошибка */}
       {error && (
         <div
           style={{
@@ -134,12 +145,10 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* лоадер только для списка маршрутов */}
       {isLoading && currentPage === 'tripsList' && trips.length === 0 && (
         <div style={{ padding: 16 }}>Загружаем маршруты…</div>
       )}
 
-      {/* онбординг */}
       {currentPage === 'onboarding' && (
         <OnboardingPage
           tgUser={tgUser}
@@ -147,7 +156,6 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* главный экран со списком поездок и городами */}
       {currentPage === 'tripsList' && (
         <TripsListPage
           trips={trips}
@@ -157,7 +165,6 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* популярные маршруты по конкретному городу */}
       {currentPage === 'popularRoutes' && selectedCity && (
         <PopularRoutesPage
           city={selectedCity}
@@ -165,23 +172,25 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* детальная поездка */}
       {currentPage === 'tripDetail' && selectedTripId && (
         <TripDetailPage
           tripId={selectedTripId}
-          appUser={appUser}
+          appUser={effectiveUser}
           onCopySuccess={() => setCurrentPage('myTrips')}
         />
       )}
 
-      {/* создание поездки */}
-      {currentPage === 'tripCreate' && appUser && (
-        <TripCreatePage author={appUser} onCreated={handleTripCreated} />
+      {currentPage === 'tripCreate' && (
+        <TripCreatePage
+          author={effectiveUser}
+          onCreated={handleTripCreated}
+        />
       )}
 
-      {/* мои поездки */}
-      {currentPage === 'myTrips' && appUser && (
-        <MyTripsPage appUser={appUser} />
+      {currentPage === 'myTrips' && (
+        <MyTripsPage
+          onBack={() => setCurrentPage('tripsList')}
+        />
       )}
     </Layout>
   )
