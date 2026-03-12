@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import type { AppUser, TripTemplate } from './types'
 import { Layout } from './components/Layout'
 import { HomePage } from './pages/HomePage'
+import { FeedPage } from './pages/FeedPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { TripDetailPage } from './pages/TripDetailPage'
 import { TripCreatePage } from './pages/TripCreatePage'
@@ -29,9 +30,14 @@ const DEMO_USER: AppUser = {
 }
 
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<Page>('home')
+  // Главной страницей делаем именно ленту
+  const [currentPage, setCurrentPage] = useState<Page>('feed')
+
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedCity, setSelectedCity] = useState<string>('Калининград')
+  const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(undefined)
+  const [routesBackPage, setRoutesBackPage] = useState<Page>('feed')
+
   const [trips, setTrips] = useState<TripTemplate[]>([])
 
   const goToTripDetail = (tripId: string) => {
@@ -53,41 +59,41 @@ export const App: React.FC = () => {
     setCurrentPage('myTrips')
   }
 
-  const handleOpenPopularRoutes = (city: string) => {
+  const handleOpenPopularRoutes = (city: string, routeId?: string) => {
     setSelectedCity(city)
+    setSelectedRouteId(routeId)
+    setRoutesBackPage(currentPage)
     setCurrentPage('popularRoutes')
   }
 
-  const handleOpenFeed = () => {
-    setSelectedCity('Калининград')
-    setCurrentPage('feed')
+  const handleBackFromPopularRoutes = () => {
+    setSelectedRouteId(undefined)
+    setCurrentPage(routesBackPage)
   }
 
   return (
     <>
       <Layout
-        onGoToTripsList={() => setCurrentPage('home')}
+        onGoToTripsList={() => setCurrentPage('feed')}
         onGoToMyTrips={handleOpenMyTrips}
         onCreateTrip={handleCreateTripClick}
       >
         {currentPage === 'home' && (
           <HomePage
-            onOpenCity={handleOpenPopularRoutes}
-            onOpenFeed={handleOpenFeed}
+            onOpenCity={(city) => handleOpenPopularRoutes(city)}
+            onOpenFeed={() => setCurrentPage('feed')}
           />
         )}
 
         {currentPage === 'feed' && (
-          <PopularRoutesPage
-            city={selectedCity}
-            onBack={() => setCurrentPage('home')}
-          />
+          <FeedPage onOpenRoutes={handleOpenPopularRoutes} />
         )}
 
         {currentPage === 'popularRoutes' && (
           <PopularRoutesPage
             city={selectedCity}
-            onBack={() => setCurrentPage('home')}
+            initialRouteId={selectedRouteId}
+            onBack={handleBackFromPopularRoutes}
           />
         )}
 
@@ -100,11 +106,14 @@ export const App: React.FC = () => {
         )}
 
         {currentPage === 'tripCreate' && (
-          <TripCreatePage author={DEMO_USER} onCreated={handleTripCreated} />
+          <TripCreatePage
+            author={DEMO_USER}
+            onCreated={handleTripCreated}
+          />
         )}
 
         {currentPage === 'myTrips' && (
-          <MyTripsPage onBack={() => setCurrentPage('home')} />
+          <MyTripsPage onBack={() => setCurrentPage('feed')} />
         )}
 
         {currentPage === 'profile' && <ProfilePage />}
@@ -123,7 +132,7 @@ export const App: React.FC = () => {
         <button
           type="button"
           className={currentPage === 'feed' ? 'active' : ''}
-          onClick={handleOpenFeed}
+          onClick={() => setCurrentPage('feed')}
         >
           <span>🌍</span>
           <span>Лента</span>
@@ -134,6 +143,8 @@ export const App: React.FC = () => {
           className={currentPage === 'popularRoutes' ? 'active' : ''}
           onClick={() => {
             setSelectedCity('Калининград')
+            setSelectedRouteId(undefined)
+            setRoutesBackPage(currentPage)
             setCurrentPage('popularRoutes')
           }}
         >
