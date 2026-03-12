@@ -38,12 +38,15 @@ type FeedPost = {
   sourceRouteTitle?: string
   pointTitle?: string
   pointTime?: string
+  pointIndex?: number
+  dayTitle?: string
 }
 
 type RoutePoint = PopularRoute['days'][number]['points'][number]
 
 const FEED_LIKES_KEY = 'progid_feed_likes_map'
 const FEED_IMAGE_CACHE_KEY = 'progid_feed_image_cache_v2'
+const POINT_IMAGE_CACHE_KEY = 'progid_feed_point_image_cache_v1'
 const LOCAL_TRIPS_KEY = 'progid_my_trips'
 
 const API_BASE =
@@ -249,6 +252,24 @@ const writeImageCache = (map: Record<string, string>) => {
   localStorage.setItem(FEED_IMAGE_CACHE_KEY, JSON.stringify(map))
 }
 
+const readPointImageCache = (): Record<string, string[]> => {
+  try {
+    const raw = localStorage.getItem(POINT_IMAGE_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const writePointImageCache = (map: Record<string, string[]>) => {
+  localStorage.setItem(POINT_IMAGE_CACHE_KEY, JSON.stringify(map))
+}
+
+const getPointCacheKey = (routeId: string, pointIndex: number): string =>
+  `${routeId}__${pointIndex}`
+
 const saveRouteToMyTrips = (route: PopularRoute, image: string) => {
   const now = new Date().toISOString()
 
@@ -400,6 +421,40 @@ const resolveRouteImage = async (
   return null
 }
 
+const resolvePointImages = async (
+  route: PopularRoute,
+  cityFolder: string,
+  pointTitle: string,
+  pointIndex: number
+): Promise<string[]> => {
+  try {
+    const cloudPhotos = await loadCloudPointImages(cityFolder, route.id, pointIndex)
+    if (cloudPhotos.length > 0) return cloudPhotos
+  } catch {
+    // ignore
+  }
+
+  try {
+    const params = new URLSearchParams({
+      routeId: route.id,
+      pointIndex: String(pointIndex),
+      city: route.city,
+      title: pointTitle,
+    })
+
+    const resp = await fetch(`${API_BASE}/api/photos?${params.toString()}`)
+    if (!resp.ok) return []
+
+    const data = await resp.json()
+    const photos = extractPhotosFromApi(data)
+    if (photos.length > 0) return photos
+  } catch {
+    // ignore
+  }
+
+  return []
+}
+
 const buildPlaceDescription = (
   point: RoutePoint,
   route: PopularRoute,
@@ -435,6 +490,7 @@ export const FeedPage: React.FC<Props> = ({
   const [savedIds, setSavedIds] = useState<string[]>([])
   const [likesMap, setLikesMap] = useState<Record<string, number>>({})
   const [imageCache, setImageCache] = useState<Record<string, string>>({})
+  const [pointImageCache, setPointImageCache] = useState<Record<string, string[]>>({})
   const [activePost, setActivePost] = useState<FeedPost | null>(null)
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
@@ -447,6 +503,7 @@ export const FeedPage: React.FC<Props> = ({
     setSavedIds(readSavedPostIds())
     setLikesMap(readLikesMap())
     setImageCache(readImageCache())
+    setPointImageCache(readPointImageCache())
   }, [])
 
   useEffect(() => {
@@ -472,15 +529,15 @@ export const FeedPage: React.FC<Props> = ({
     allRoutes.forEach((route, routeIndex) => {
       const cityFolder = normalizeCityFolder(route.city)
       const routeImages = collectRouteImages(route, cityFolder, imageCache)
-      const routeId = `route_post_${route.id}`
+      const routePostId = `route_post_${route.id}`
       const pointsCount = countRoutePoints(route)
       const previewPoints = buildRoutePreview(route)
       const baseLikes = typeof route.popularity === 'number' ? route.popularity : 0
       const routeLikes =
-        likesMap[routeId] ?? Math.max(6, Math.round(baseLikes / 8) || routeIndex + 7)
+        likesMap[routePostId] ?? Math.max(6, Math.round(baseLikes / 8) || routeIndex + 7)
 
       mixedPosts.push({
-        id: routeId,
+        id: routePostId,
         type: 'route',
         routeId: route.id,
         city: route.city,
@@ -500,15 +557,23 @@ export const FeedPage: React.FC<Props> = ({
       })
 
       let meaningfulIndex = 0
+      let globalPointIndex = 0
 
       route.days.forEach((day, dayIndex) => {
         day.points.forEach((point, pointIndex) => {
+          const currentPointIndex = globalPointIndex
+          globalPointIndex += 1
+
           const title = point.title?.trim() || ''
           if (!title || isUtilityPoint(title)) return
 
+          const pointCacheKey = getPointCacheKey(route.id, currentPointIndex)
+          const cachedPointImages = pointImageCache[pointCacheKey] ?? []
+
           const pointImages = uniqueStrings([
+            ...cachedPointImages,
             ...(Array.isArray(point.images) ? point.images : []),
-            ...routeImages.slice(0, 4),
+            ...routeImages,
           ])
 
           const placeId = `place_post_${route.id}_${dayIndex}_${pointIndex}`
@@ -532,6 +597,8 @@ export const FeedPage: React.FC<Props> = ({
             route,
             pointTitle: title,
             pointTime: point.time,
+            pointIndex: currentPointIndex,
+            dayTitle: day.title,
             sourceRouteTitle: route.title,
             createdAt: new Date(
               Date.now() - (routeIndex * 10 + meaningfulIndex + 1) * 1000 * 60 * 60 * 2
@@ -539,8 +606,9 @@ export const FeedPage: React.FC<Props> = ({
           })
 
           const momentImages = uniqueStrings([
+            ...cachedPointImages,
             ...(Array.isArray(point.images) ? point.images : []),
-            ...routeImages.slice(0, 3),
+            ...routeImages,
           ])
 
           const momentId = `moment_post_${route.id}_${dayIndex}_${pointIndex}`
@@ -563,6 +631,8 @@ export const FeedPage: React.FC<Props> = ({
             route,
             pointTitle: title,
             pointTime: point.time,
+            pointIndex: currentPointIndex,
+            dayTitle: day.title,
             sourceRouteTitle: route.title,
             createdAt: new Date(
               Date.now() - (routeIndex * 10 + meaningfulIndex + 1) * 1000 * 60 * 45
@@ -579,7 +649,7 @@ export const FeedPage: React.FC<Props> = ({
       const bScore = (b.route.popularity ?? 0) + b.likes
       return bScore - aScore
     })
-  }, [likesMap, imageCache])
+  }, [likesMap, imageCache, pointImageCache])
 
   const visiblePosts = useMemo(() => {
     return posts.filter(post => {
@@ -587,6 +657,30 @@ export const FeedPage: React.FC<Props> = ({
       return hasGoodImage
     })
   }, [posts, failedImages])
+
+  const getSafeImages = (post: FeedPost): string[] => {
+    const safe = post.images.filter(Boolean).filter(img => !failedImages[img])
+    if (safe.length > 0) return safe
+
+    if (post.image && !failedImages[post.image]) return [post.image]
+
+    return [getCityCoverUrl(post.cityFolder)]
+  }
+
+  const getDisplayedPostImage = (post: FeedPost): string => {
+    const safeImages = getSafeImages(post)
+    const index = imageIndexes[post.id] ?? 0
+    return safeImages[index % safeImages.length]
+  }
+
+  const mergePostImages = (post: FeedPost, extraImages: string[]): FeedPost => {
+    const merged = uniqueStrings([...extraImages, ...post.images])
+    return {
+      ...post,
+      images: merged,
+      image: merged[0] || post.image,
+    }
+  }
 
   const toggleLike = (postId: string) => {
     const isLiked = likedIds.includes(postId)
@@ -624,54 +718,130 @@ export const FeedPage: React.FC<Props> = ({
     setSaveToast('Маршрут сохранён в «Мои поездки»')
   }
 
-  const tryResolvePostImage = async (post: FeedPost) => {
-    if (loadingImages[post.routeId]) return
+  const hydratePostImages = async (post: FeedPost) => {
+    if (loadingImages[post.id]) return
 
-    const routeHasOwnImage = hasOwnCoverImage(post.route)
-    const currentCached = imageCache[post.routeId]
-    const currentImage = currentCached || post.image
-    const currentIsCityCover = currentImage === getCityCoverUrl(post.cityFolder)
-
-    if (routeHasOwnImage && !currentIsCityCover) return
-    if (currentCached && !currentIsCityCover) return
-
-    setLoadingImages(prev => ({ ...prev, [post.routeId]: true }))
+    setLoadingImages(prev => ({ ...prev, [post.id]: true }))
 
     try {
-      const resolved = await resolveRouteImage(post.route, post.cityFolder)
-      if (!resolved) return
+      if ((post.type === 'place' || post.type === 'moment') && typeof post.pointIndex === 'number') {
+        const pointCacheKey = getPointCacheKey(post.routeId, post.pointIndex)
+        const cachedPointImages = pointImageCache[pointCacheKey] ?? []
 
-      const next = {
-        ...imageCache,
-        [post.routeId]: resolved,
+        if (cachedPointImages.length > 0) {
+          setActivePost(prev => {
+            if (!prev || prev.id !== post.id) return prev
+            return mergePostImages(prev, cachedPointImages)
+          })
+          return
+        }
+
+        const resolvedPointImages = await resolvePointImages(
+          post.route,
+          post.cityFolder,
+          post.pointTitle || post.title,
+          post.pointIndex
+        )
+
+        if (resolvedPointImages.length > 0) {
+          const nextPointCache = {
+            ...pointImageCache,
+            [pointCacheKey]: resolvedPointImages,
+          }
+
+          setPointImageCache(nextPointCache)
+          writePointImageCache(nextPointCache)
+
+          setActivePost(prev => {
+            if (!prev || prev.id !== post.id) return prev
+            return mergePostImages(prev, resolvedPointImages)
+          })
+          return
+        }
       }
 
-      setImageCache(next)
-      writeImageCache(next)
+      if (post.type === 'route') {
+        const routeHasOwnImage = hasOwnCoverImage(post.route)
+        const currentCached = imageCache[post.routeId]
+        const currentImage = currentCached || post.image
+        const currentIsCityCover = currentImage === getCityCoverUrl(post.cityFolder)
 
-      setActivePost(prev => {
-        if (!prev || prev.routeId !== post.routeId) return prev
-        return {
-          ...prev,
-          image: resolved,
-          images: uniqueStrings([resolved, ...prev.images]),
+        if (routeHasOwnImage && !currentIsCityCover) return
+        if (currentCached && !currentIsCityCover) return
+
+        const resolved = await resolveRouteImage(post.route, post.cityFolder)
+        if (!resolved) return
+
+        const next = {
+          ...imageCache,
+          [post.routeId]: resolved,
         }
-      })
+
+        setImageCache(next)
+        writeImageCache(next)
+
+        setActivePost(prev => {
+          if (!prev || prev.id !== post.id) return prev
+          return mergePostImages(prev, [resolved])
+        })
+      }
     } finally {
-      setLoadingImages(prev => ({ ...prev, [post.routeId]: false }))
+      setLoadingImages(prev => ({ ...prev, [post.id]: false }))
     }
   }
 
-  const getSafeImages = (post: FeedPost): string[] => {
-    const imgs = post.images.filter(img => !failedImages[img])
-    return imgs.length > 0 ? imgs : [post.image]
-  }
+  // Фоновая гидрация картинок для place/moment, чтобы стрелки и фото были сразу в ленте.
+  useEffect(() => {
+    let cancelled = false
 
-  const getDisplayedPostImage = (post: FeedPost): string => {
-    const safeImages = getSafeImages(post)
-    const index = imageIndexes[post.id] ?? 0
-    return safeImages[index % safeImages.length]
-  }
+    const run = async () => {
+      const candidates = visiblePosts
+        .filter(
+          post =>
+            (post.type === 'place' || post.type === 'moment') &&
+            typeof post.pointIndex === 'number'
+        )
+        .slice(0, 18)
+
+      for (const post of candidates) {
+        if (cancelled) return
+        if (typeof post.pointIndex !== 'number') continue
+
+        const pointCacheKey = getPointCacheKey(post.routeId, post.pointIndex)
+        const cached = pointImageCache[pointCacheKey] ?? []
+        const pointOwnImages = post.images.filter(img => !img.includes('/city-cover.jpg'))
+
+        if (cached.length > 0 || pointOwnImages.length > 1) continue
+
+        try {
+          const resolved = await resolvePointImages(
+            post.route,
+            post.cityFolder,
+            post.pointTitle || post.title,
+            post.pointIndex
+          )
+
+          if (cancelled || resolved.length === 0) continue
+
+          const next = {
+            ...pointImageCache,
+            [pointCacheKey]: resolved,
+          }
+
+          setPointImageCache(next)
+          writePointImageCache(next)
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    run()
+
+    return () => {
+      cancelled = true
+    }
+  }, [visiblePosts, pointImageCache])
 
   const showPrevImage = (e: React.MouseEvent, post: FeedPost) => {
     e.stopPropagation()
@@ -703,11 +873,12 @@ export const FeedPage: React.FC<Props> = ({
 
   const handleOpenPost = async (post: FeedPost) => {
     setIsAddMenuOpen(false)
-    setActivePost({
+    const withCurrentImage = {
       ...post,
       image: getDisplayedPostImage(post),
-    })
-    await tryResolvePostImage(post)
+    }
+    setActivePost(withCurrentImage)
+    await hydratePostImages(withCurrentImage)
   }
 
   return (
@@ -807,7 +978,7 @@ export const FeedPage: React.FC<Props> = ({
         {visiblePosts.map(post => {
           const isLiked = likedIds.includes(post.id)
           const isSaved = savedIds.includes(post.id)
-          const isImageLoading = loadingImages[post.routeId]
+          const isImageLoading = loadingImages[post.id]
           const safeImages = getSafeImages(post)
           const currentImage = getDisplayedPostImage(post)
           const currentIndex = imageIndexes[post.id] ?? 0
@@ -958,157 +1129,186 @@ export const FeedPage: React.FC<Props> = ({
         })}
       </div>
 
-      {activePost && (
-        <div
-          className="feed-post-backdrop"
-          onClick={() => setActivePost(null)}
-        >
-          <div
-            className="feed-post-modal"
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="feed-post-close"
-              onClick={() => setActivePost(null)}
-            >
-              ✕
-            </button>
+      {activePost && (() => {
+        const modalSafeImages = getSafeImages(activePost)
+        const modalIndex = imageIndexes[activePost.id] ?? 0
+        const modalImage = modalSafeImages[modalIndex % modalSafeImages.length]
+        const modalLoading = loadingImages[activePost.id]
 
-            <div className="feed-post-image-wrap">
-              {!failedImages[activePost.image] && (
+        return (
+          <div
+            className="feed-post-backdrop"
+            onClick={() => setActivePost(null)}
+          >
+            <div
+              className="feed-post-modal"
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="feed-post-close"
+                onClick={() => setActivePost(null)}
+              >
+                ✕
+              </button>
+
+              <div className="feed-post-image-wrap">
                 <img
-                  src={activePost.image}
+                  src={modalImage}
                   alt={activePost.title}
                   className="feed-post-image"
                   onError={() => {
-                    setFailedImages(prev => ({ ...prev, [activePost.image]: true }))
+                    setFailedImages(prev => ({ ...prev, [modalImage]: true }))
                   }}
                 />
-              )}
 
-              {loadingImages[activePost.routeId] && (
-                <div className="feed-post-image-loader">
-                  Ищем более подходящее фото…
-                </div>
-              )}
-            </div>
-
-            <div className="feed-post-body">
-              <div className="feed-post-topline">
-                <span className="feed-type">{feedTypeLabel(activePost.type)}</span>
-                <span className="feed-city-tag">{activePost.city}</span>
-              </div>
-
-              <div className="feed-post-title">{activePost.title}</div>
-              <div className="feed-post-description">{activePost.description}</div>
-
-              <div className="feed-post-stats">
-                {activePost.type === 'route' ? (
+                {modalSafeImages.length > 1 && (
                   <>
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">{activePost.daysCount ?? '—'}</div>
-                      <div className="feed-post-stat-label">дней</div>
-                    </div>
+                    <button
+                      type="button"
+                      className="feed-carousel-btn left"
+                      onClick={e => showPrevImage(e, activePost)}
+                    >
+                      ‹
+                    </button>
 
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">{activePost.pointsCount ?? '—'}</div>
-                      <div className="feed-post-stat-label">точек</div>
-                    </div>
+                    <button
+                      type="button"
+                      className="feed-carousel-btn right"
+                      onClick={e => showNextImage(e, activePost)}
+                    >
+                      ›
+                    </button>
 
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">
-                        {routeDifficultyLabel(activePost.difficulty)}
-                      </div>
-                      <div className="feed-post-stat-label">сложность</div>
-                    </div>
-
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">
-                        {typeof activePost.distanceKm !== 'undefined'
-                          ? `~${activePost.distanceKm}`
-                          : '—'}
-                      </div>
-                      <div className="feed-post-stat-label">км</div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">{feedTypeLabel(activePost.type)}</div>
-                      <div className="feed-post-stat-label">тип поста</div>
-                    </div>
-
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">{activePost.city}</div>
-                      <div className="feed-post-stat-label">город</div>
-                    </div>
-
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">{activePost.pointTime || '—'}</div>
-                      <div className="feed-post-stat-label">время</div>
-                    </div>
-
-                    <div className="feed-post-stat">
-                      <div className="feed-post-stat-value">
-                        {activePost.sourceRouteTitle || '—'}
-                      </div>
-                      <div className="feed-post-stat-label">источник</div>
+                    <div className="feed-carousel-counter">
+                      {modalIndex + 1} / {modalSafeImages.length}
                     </div>
                   </>
                 )}
+
+                {modalLoading && (
+                  <div className="feed-post-image-loader">
+                    Ищем более подходящее фото…
+                  </div>
+                )}
               </div>
 
-              {activePost.previewPoints.length > 0 && (
-                <div className="feed-post-points">
-                  {activePost.previewPoints.map(point => (
-                    <span key={point} className="feed-post-point-chip">
-                      {point}
-                    </span>
-                  ))}
+              <div className="feed-post-body">
+                <div className="feed-post-topline">
+                  <span className="feed-type">{feedTypeLabel(activePost.type)}</span>
+                  <span className="feed-city-tag">{activePost.city}</span>
                 </div>
-              )}
 
-              <div className="feed-post-actions">
-                <button
-                  type="button"
-                  className={
-                    likedIds.includes(activePost.id)
-                      ? 'feed-action-btn active'
-                      : 'feed-action-btn'
-                  }
-                  onClick={() => toggleLike(activePost.id)}
-                >
-                  ❤️ {likesMap[activePost.id] ?? activePost.likes}
-                </button>
+                <div className="feed-post-title">{activePost.title}</div>
+                <div className="feed-post-description">{activePost.description}</div>
 
-                <button
-                  type="button"
-                  className={
-                    savedIds.includes(activePost.id)
-                      ? 'feed-action-btn active'
-                      : 'feed-action-btn'
-                  }
-                  onClick={() => handleSaveTrip(activePost)}
-                >
-                  🔖 {savedIds.includes(activePost.id) ? 'Сохранено' : 'Сохранить'}
-                </button>
+                <div className="feed-post-stats">
+                  {activePost.type === 'route' ? (
+                    <>
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">{activePost.daysCount ?? '—'}</div>
+                        <div className="feed-post-stat-label">дней</div>
+                      </div>
 
-                <button
-                  type="button"
-                  className="feed-open-route-btn"
-                  onClick={() => {
-                    setActivePost(null)
-                    onOpenRoutes(activePost.city, activePost.routeId)
-                  }}
-                >
-                  Открыть маршрут
-                </button>
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">{activePost.pointsCount ?? '—'}</div>
+                        <div className="feed-post-stat-label">точек</div>
+                      </div>
+
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">
+                          {routeDifficultyLabel(activePost.difficulty)}
+                        </div>
+                        <div className="feed-post-stat-label">сложность</div>
+                      </div>
+
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">
+                          {typeof activePost.distanceKm !== 'undefined'
+                            ? `~${activePost.distanceKm}`
+                            : '—'}
+                        </div>
+                        <div className="feed-post-stat-label">км</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">{feedTypeLabel(activePost.type)}</div>
+                        <div className="feed-post-stat-label">тип поста</div>
+                      </div>
+
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">{activePost.city}</div>
+                        <div className="feed-post-stat-label">город</div>
+                      </div>
+
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">{activePost.pointTime || '—'}</div>
+                        <div className="feed-post-stat-label">время</div>
+                      </div>
+
+                      <div className="feed-post-stat">
+                        <div className="feed-post-stat-value">
+                          {activePost.sourceRouteTitle || '—'}
+                        </div>
+                        <div className="feed-post-stat-label">источник</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {activePost.previewPoints.length > 0 && (
+                  <div className="feed-post-points">
+                    {activePost.previewPoints.map(point => (
+                      <span key={point} className="feed-post-point-chip">
+                        {point}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="feed-post-actions">
+                  <button
+                    type="button"
+                    className={
+                      likedIds.includes(activePost.id)
+                        ? 'feed-action-btn active'
+                        : 'feed-action-btn'
+                    }
+                    onClick={() => toggleLike(activePost.id)}
+                  >
+                    ❤️ {likesMap[activePost.id] ?? activePost.likes}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      savedIds.includes(activePost.id)
+                        ? 'feed-action-btn active'
+                        : 'feed-action-btn'
+                    }
+                    onClick={() => handleSaveTrip(activePost)}
+                  >
+                    🔖 {savedIds.includes(activePost.id) ? 'Сохранено' : 'Сохранить'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="feed-open-route-btn"
+                    onClick={() => {
+                      setActivePost(null)
+                      onOpenRoutes(activePost.city, activePost.routeId)
+                    }}
+                  >
+                    Открыть маршрут
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

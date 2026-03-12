@@ -16,6 +16,8 @@ type ViewMode = 'places' | 'ai' | 'routes'
 type ActivePointState = {
   routeId: string
   dayTitle: string
+  dayIndex: number
+  pointIndex: number
   point: {
     title: string
     time?: string
@@ -34,6 +36,7 @@ type WikiState = {
 type PlaceItem = {
   id: string
   route: PopularRoute
+  dayIndex: number
   dayTitle: string
   pointIndex: number
   point: {
@@ -137,6 +140,67 @@ const getCityCoverUrl = (cityFolder: string): string =>
 
 const MAX_CLOUD_POINT_IMAGES = 8
 
+const normalizeText = (text: string): string => {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+const cleanupPlaceTitle = (title: string): string => {
+  return normalizeText(title)
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
+    .replace(/^Переезд\s+в\s+/i, '')
+    .replace(/^Прогулка\s+по\s+/i, '')
+    .replace(/^Посещение\s+/i, '')
+    .replace(/^Осмотр\s+/i, '')
+    .trim()
+}
+
+const slugify = (value: string): string => {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/ё/g, 'е')
+    .replace(/[^a-zа-я0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+}
+
+const buildPointSlug = (title?: string, fallback = 'point'): string => {
+  const clean = cleanupPlaceTitle(title || '')
+  const slug = slugify(clean)
+  return slug || fallback
+}
+
+const buildPointCacheKey = (
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
+): string => {
+  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
+  return `${routeId}_${dayIndex}_${pointIndex}_${pointSlug}`
+}
+
+const buildExactCloudPrefix = (
+  cityFolder: string,
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
+): string => {
+  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
+  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/day_${dayIndex}/point_${pointIndex}_${pointSlug}`
+}
+
+const buildLegacyCloudPrefix = (
+  cityFolder: string,
+  routeId: string,
+  pointIndex: number
+): string => {
+  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}`
+}
+
 const probeImageUrl = (url: string): Promise<boolean> => {
   return new Promise(resolve => {
     const img = new Image()
@@ -149,18 +213,33 @@ const probeImageUrl = (url: string): Promise<boolean> => {
 const loadCloudPointImages = async (
   cityFolder: string,
   routeId: string,
-  pointIndex: number
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
 ): Promise<string[]> => {
-  const goodUrls: string[] = []
+  const exactUrls: string[] = []
+  const exactPrefix = buildExactCloudPrefix(cityFolder, routeId, dayIndex, pointIndex, title)
 
   for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}/image-${i}.jpg`
+    const url = `${exactPrefix}/image-${i}.jpg`
     // eslint-disable-next-line no-await-in-loop
     const ok = await probeImageUrl(url)
-    if (ok) goodUrls.push(url)
+    if (ok) exactUrls.push(url)
   }
 
-  return goodUrls
+  if (exactUrls.length > 0) return exactUrls
+
+  const legacyUrls: string[] = []
+  const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
+
+  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
+    const url = `${legacyPrefix}/image-${i}.jpg`
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await probeImageUrl(url)
+    if (ok) legacyUrls.push(url)
+  }
+
+  return legacyUrls
 }
 
 const extractPhotosFromApi = (data: any): string[] => {
@@ -281,10 +360,6 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
-const normalizeText = (text: string): string => {
-  return text.replace(/\s+/g, ' ').trim()
-}
-
 const stripHtml = (text: string): string => {
   return text
     .replace(/<[^>]*>/g, ' ')
@@ -314,15 +389,7 @@ const buildWikiCandidates = (
   const title = normalizeText(rawTitle)
   const city = normalizeText(cityTitle)
 
-  const cleaned = title
-    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
-    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
-    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
-    .replace(/^Переезд\s+в\s+/i, '')
-    .replace(/^Прогулка\s+по\s+/i, '')
-    .replace(/^Посещение\s+/i, '')
-    .replace(/^Осмотр\s+/i, '')
-    .trim()
+  const cleaned = cleanupPlaceTitle(title)
 
   const aliasMap: Record<string, string[]> = {
     'верхнее озеро и парк «юность»': [
@@ -652,6 +719,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           list.push({
             id: `${route.id}_${dayIdx}_${pointIdx}`,
             route,
+            dayIndex: dayIdx,
             dayTitle: day.title,
             pointIndex: pointIdx,
             point
@@ -709,24 +777,56 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setZoomedImageTitle('')
   }
 
+  const fetchPhotosFromBackend = async (
+    params: URLSearchParams
+  ): Promise<string[]> => {
+    const urlsToTry = [
+      `${API_BASE}/api/photos?${params.toString()}`,
+      `${API_BASE}/photos?${params.toString()}`
+    ]
+
+    for (const url of urlsToTry) {
+      try {
+        const resp = await fetch(url)
+        if (!resp.ok) continue
+
+        const data = await resp.json()
+        const remotePhotos = extractPhotosFromApi(data)
+
+        if (remotePhotos.length > 0) {
+          return remotePhotos
+        }
+      } catch (e) {
+        console.error('photos api error', url, e)
+      }
+    }
+
+    return []
+  }
+
   const openPointModal = async (
     route: PopularRoute,
     dayTitle: string,
+    dayIndex: number,
     point: {
       title: string
       time?: string
       description?: string
       images?: string[]
     },
-    index: number
+    pointIndex: number
   ) => {
-    const isExtra = index < 0
-    const cacheKey = isExtra ? `extra_${route.id}_${Math.abs(index)}` : `${route.id}_${index}`
+    const isExtra = pointIndex < 0
+    const cacheKey = isExtra
+      ? `extra_${buildPointCacheKey(route.id, dayIndex, Math.abs(pointIndex), point.title)}`
+      : buildPointCacheKey(route.id, dayIndex, pointIndex, point.title)
 
     setActiveRoute(route)
     setActivePoint({
       routeId: route.id,
       dayTitle,
+      dayIndex,
+      pointIndex,
       point
     })
     setActiveImageIndex(0)
@@ -778,54 +878,39 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     const params = new URLSearchParams({
       routeId: route.id,
-      pointIndex: String(index),
+      dayIndex: String(dayIndex),
+      pointIndex: String(pointIndex),
       city: route.city || cityTitle,
       title: point.title
     })
 
-    const fetchFromBackend = async (attempt: number) => {
-      try {
-        const url = `${API_BASE}/api/photos?${params.toString()}`
-        const resp = await fetch(url)
+    try {
+      const remotePhotos = await fetchPhotosFromBackend(params)
 
-        if (!resp.ok) {
-          throw new Error(`Bad status ${resp.status}`)
-        }
+      if (remotePhotos.length > 0) {
+        setPointPhotosCache(prev => ({
+          ...prev,
+          [cacheKey]: remotePhotos
+        }))
 
-        const data = await resp.json()
-        const remotePhotos = extractPhotosFromApi(data)
-
-        if (remotePhotos.length > 0) {
-          setPointPhotosCache(prev => ({
-            ...prev,
-            [cacheKey]: remotePhotos
-          }))
-
-          setPointImages(prev => {
-            const all = [...prev, ...remotePhotos]
-            return Array.from(new Set(all.filter(Boolean)))
-          })
-          setIsPointImagesLoading(false)
-          return
-        }
-
-        if (data.status === 'pending' && attempt < 3) {
-          setTimeout(() => fetchFromBackend(attempt + 1), 2000)
-          return
-        }
-
-        setIsPointImagesLoading(false)
-      } catch (e) {
-        console.error('photos api error', e)
+        setPointImages(prev => {
+          const all = [...prev, ...remotePhotos]
+          return Array.from(new Set(all.filter(Boolean)))
+        })
         setIsPointImagesLoading(false)
       }
+    } catch (e) {
+      console.error('backend point photos load error', e)
     }
 
-    fetchFromBackend(0)
-
-    loadCloudPointImages(cityFolder, route.id, index)
+    loadCloudPointImages(cityFolder, route.id, dayIndex, pointIndex, point.title)
       .then(cloudPhotos => {
-        if (!cloudPhotos || cloudPhotos.length === 0) return
+        if (!cloudPhotos || cloudPhotos.length === 0) {
+          if (baseImages.length === 0) {
+            setIsPointImagesLoading(false)
+          }
+          return
+        }
 
         setPointPhotosCache(prev => {
           const prevCached = prev[cacheKey] ?? []
@@ -901,6 +986,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       routeTitle: activeRoute.title,
       city: activeRoute.city,
       dayTitle: activePoint.dayTitle,
+      dayIndex: activePoint.dayIndex,
+      pointIndex: activePoint.pointIndex,
       pointTitle: activePoint.point.title,
       pointTime: activePoint.point.time ?? null
     }
@@ -1277,7 +1364,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
                 type="button"
                 className="route-card route-card-place"
                 onClick={() =>
-                  openPointModal(place.route, place.dayTitle, place.point, place.pointIndex)
+                  openPointModal(
+                    place.route,
+                    place.dayTitle,
+                    place.dayIndex,
+                    place.point,
+                    place.pointIndex
+                  )
                 }
               >
                 <div className="route-card-header">
@@ -1711,7 +1804,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
                                   type="button"
                                   className="route-point-item"
                                   onClick={() =>
-                                    openPointModal(activeRoute, day.title, point, index)
+                                    openPointModal(activeRoute, day.title, dayIndex, point, index)
                                   }
                                 >
                                   {point.time && (
@@ -1748,7 +1841,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
                                 type="button"
                                 className="route-point-item"
                                 onClick={() =>
-                                  openPointModal(activeRoute, day.title, point, -1 - exIndex)
+                                  openPointModal(activeRoute, day.title, dayIndex, point, -1 - exIndex)
                                 }
                               >
                                 {point.time && (
