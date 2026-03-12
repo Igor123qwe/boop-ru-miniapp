@@ -8,6 +8,64 @@ type Props = {
   onBack: () => void
 }
 
+type SortMode = 'popularity' | 'days' | 'difficulty'
+type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
+type ViewMode = 'places' | 'ai' | 'routes'
+
+type ActivePointState = {
+  routeId: string
+  dayTitle: string
+  point: {
+    title: string
+    time?: string
+    description?: string
+    images?: string[]
+  }
+}
+
+type WikiState = {
+  loading: boolean
+  error: boolean
+  extract: string | null
+  url: string | null
+}
+
+type PlaceItem = {
+  id: string
+  route: PopularRoute
+  dayTitle: string
+  pointIndex: number
+  point: {
+    title: string
+    time?: string
+    description?: string
+    images?: string[]
+  }
+}
+
+type RoutePoint = PopularRoute['days'][number]['points'][number]
+
+type SavedTrip = {
+  id: string
+  city: string
+  routeId: string
+  title: string
+  shortDescription?: string
+  daysCount: number
+  difficulty?: string
+  distanceKm?: number
+  estimatedBudget?: number
+  season?: string
+  coverImage?: string
+  hiddenPoints: Record<number, number[]>
+  extraPoints: Record<number, RoutePoint[]>
+  routeSnapshot: PopularRoute
+  createdAt: string
+  updatedAt: string
+}
+
+const LOCAL_TRIPS_KEY = 'progid_my_trips'
+
 // Нормализуем строку города к нашим ключам popularRoutes
 const normalizeCityKey = (city: string): string => {
   const c = city.toLowerCase().trim()
@@ -48,13 +106,11 @@ const normalizeCityFolder = (city: string): string => {
   return c
 }
 
-// все маршруты, если город не распознан
 const getAllRoutes = (): PopularRoute[] => {
   const arrays = Object.values(POPULAR_ROUTES)
   return arrays.flat()
 }
 
-// склонение "день"
 const declension = (
   one: string,
   few: string,
@@ -69,85 +125,10 @@ const declension = (
   return many
 }
 
-type SortMode = 'popularity' | 'days' | 'difficulty'
-type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
-type ViewMode = 'places' | 'ai' | 'routes'
-
-type ActivePointState = {
-  routeId: string
-  dayTitle: string
-  point: {
-    title: string
-    time?: string
-    description?: string
-    images?: string[]
-  }
-}
-
-type WikiState = {
-  loading: boolean
-  error: boolean
-  extract: string | null
-  url: string | null
-}
-
-// ===== Википедия для описаний =====
-const fetchWikiExtract = async (
-  rawTitle: string
-): Promise<{ extract: string; url: string } | null> => {
-  try {
-    const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
-      rawTitle
-    )}&limit=1&namespace=0&format=json&origin=*`
-
-    const searchRes = await fetch(searchUrl)
-    if (!searchRes.ok) return null
-
-    const searchData = (await searchRes.json()) as [
-      string,
-      string[],
-      string[],
-      string[]
-    ]
-
-    const foundTitle = searchData[1]?.[0]
-    if (!foundTitle) return null
-
-    const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
-      foundTitle
-    )}?origin=*`
-
-    const summaryRes = await fetch(summaryUrl)
-    if (!summaryRes.ok) return null
-
-    const summaryData = await summaryRes.json()
-
-    const extract: string | undefined =
-      summaryData.extract ||
-      summaryData.description ||
-      summaryData?.content_urls?.desktop?.page
-
-    if (!extract) return null
-
-    const url: string | undefined =
-      summaryData?.content_urls?.desktop?.page ||
-      `https://ru.wikipedia.org/wiki/${encodeURIComponent(foundTitle)}`
-
-    return {
-      extract,
-      url: url ?? `https://ru.wikipedia.org/wiki/${encodeURIComponent(foundTitle)}`
-    }
-  } catch {
-    return null
-  }
-}
-
-// базовый URL бекенда
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://progid-backend.vercel.app'
 
-// базовый URL облака
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images'
@@ -214,20 +195,6 @@ const extractPhotosFromApi = (data: any): string[] => {
   return []
 }
 
-type PlaceItem = {
-  id: string
-  route: PopularRoute
-  dayTitle: string
-  pointIndex: number
-  point: {
-    title: string
-    time?: string
-    description?: string
-    images?: string[]
-  }
-}
-
-// подготовить embed-URL Яндекса
 const prepareYandexEmbed = (raw: string): string => {
   let urlStr = raw.startsWith('https://yandex.ru/maps/')
     ? raw.replace('https://yandex.ru/maps/', 'https://yandex.ru/map-widget/v1/')
@@ -265,8 +232,6 @@ const getEmbedUrl = (route: PopularRoute): string | undefined => {
 
   return undefined
 }
-
-type RoutePoint = PopularRoute['days'][number]['points'][number]
 
 const isUtilityPoint = (title?: string): boolean => {
   const t = (title || '').toLowerCase().trim()
@@ -326,6 +291,208 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
+const normalizeText = (text: string): string => {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+const stripHtml = (text: string): string => {
+  return text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&laquo;/g, '«')
+    .replace(/&raquo;/g, '»')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+const cleanWikiExtract = (text: string): string => {
+  return normalizeText(stripHtml(text))
+    .replace(/\[\d+\]/g, '')
+    .replace(/\s+\./g, '.')
+}
+
+const uniqueStrings = (items: string[]): string[] => {
+  return Array.from(new Set(items.map(i => i.trim()).filter(Boolean)))
+}
+
+const buildWikiCandidates = (
+  rawTitle: string,
+  cityTitle: string,
+  pointDescription?: string
+): string[] => {
+  const title = normalizeText(rawTitle)
+  const city = normalizeText(cityTitle)
+
+  let cleaned = title
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
+    .replace(/^Переезд\s+в\s+/i, '')
+    .replace(/^Прогулка\s+по\s+/i, '')
+    .replace(/^Посещение\s+/i, '')
+    .replace(/^Осмотр\s+/i, '')
+    .trim()
+
+  const aliasMap: Record<string, string[]> = {
+    'верхнее озеро и парк «юность»': [
+      'Верхнее озеро (Калининград)',
+      'Парк Юность (Калининград)',
+      'Верхнее озеро Калининград',
+      'Парк Юность Калининград'
+    ],
+    'верхнее озеро и парк "юность"': [
+      'Верхнее озеро (Калининград)',
+      'Парк Юность (Калининград)',
+      'Верхнее озеро Калининград',
+      'Парк Юность Калининград'
+    ],
+    'кафедральный собор и остров канта': [
+      'Кафедральный собор (Калининград)',
+      'Остров Канта',
+      'Кнайпхоф'
+    ],
+    'рыбная деревня': ['Рыбная деревня (Калининград)'],
+    'музей мирового океана': ['Музей Мирового океана'],
+    'нижнее озеро': ['Нижнее озеро (Калининград)', 'Нижнее озеро Калининград'],
+    'верхнее озеро': ['Верхнее озеро (Калининград)', 'Верхнее озеро Калининград']
+  }
+
+  const aliases = aliasMap[cleaned.toLowerCase()] ?? []
+
+  const descriptionBased: string[] = []
+  if (pointDescription) {
+    const desc = normalizeText(pointDescription)
+    if (desc.length > 3 && desc.length < 80) {
+      descriptionBased.push(desc)
+    }
+  }
+
+  return uniqueStrings([
+    cleaned,
+    `${cleaned} (${city})`,
+    `${cleaned} ${city}`,
+    ...aliases,
+    ...descriptionBased
+  ])
+}
+
+const fetchWikiSummaryDirect = async (
+  title: string
+): Promise<{ extract: string; url: string } | null> => {
+  try {
+    const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+      title
+    )}`
+
+    const res = await fetch(summaryUrl, {
+      headers: { Accept: 'application/json' }
+    })
+
+    if (!res.ok) return null
+
+    const data = await res.json()
+
+    const rawExtract =
+      typeof data.extract === 'string'
+        ? data.extract
+        : typeof data.extract_html === 'string'
+          ? data.extract_html
+          : typeof data.description === 'string'
+            ? data.description
+            : ''
+
+    const extract = cleanWikiExtract(rawExtract)
+    const url =
+      data?.content_urls?.desktop?.page ||
+      `https://ru.wikipedia.org/wiki/${encodeURIComponent(title)}`
+
+    if (!extract) return null
+
+    return { extract, url }
+  } catch {
+    return null
+  }
+}
+
+const fetchWikiBySearch = async (
+  title: string
+): Promise<{ extract: string; url: string } | null> => {
+  try {
+    const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
+      title
+    )}&limit=1&namespace=0&format=json&origin=*`
+
+    const searchRes = await fetch(searchUrl)
+    if (!searchRes.ok) return null
+
+    const searchData = (await searchRes.json()) as [
+      string,
+      string[],
+      string[],
+      string[]
+    ]
+
+    const foundTitle = searchData[1]?.[0]
+    if (!foundTitle) return null
+
+    return await fetchWikiSummaryDirect(foundTitle)
+  } catch {
+    return null
+  }
+}
+
+const fetchWikiExtract = async (
+  rawTitle: string,
+  cityTitle: string,
+  pointDescription?: string
+): Promise<{ extract: string; url: string } | null> => {
+  const candidates = buildWikiCandidates(rawTitle, cityTitle, pointDescription)
+
+  for (const candidate of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const direct = await fetchWikiSummaryDirect(candidate)
+    if (direct) return direct
+
+    // eslint-disable-next-line no-await-in-loop
+    const searched = await fetchWikiBySearch(candidate)
+    if (searched) return searched
+  }
+
+  return null
+}
+
+const readSavedTrips = (): SavedTrip[] => {
+  try {
+    const raw = localStorage.getItem(LOCAL_TRIPS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+const saveTripToLocalStorage = (trip: SavedTrip): void => {
+  const current = readSavedTrips()
+  const existingIndex = current.findIndex(
+    item => item.routeId === trip.routeId && item.city === trip.city
+  )
+
+  if (existingIndex >= 0) {
+    current[existingIndex] = {
+      ...current[existingIndex],
+      ...trip,
+      createdAt: current[existingIndex].createdAt,
+      updatedAt: new Date().toISOString()
+    }
+  } else {
+    current.unshift(trip)
+  }
+
+  localStorage.setItem(LOCAL_TRIPS_KEY, JSON.stringify(current))
+}
+
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const { webApp } = useTelegramWebApp()
 
@@ -378,6 +545,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   const [isAddPlaceOpen, setIsAddPlaceOpen] = useState(false)
   const [placesQuery, setPlacesQuery] = useState('')
   const [showOnlyMeaningfulPlaces, setShowOnlyMeaningfulPlaces] = useState(true)
+  const [saveMessage, setSaveMessage] = useState('')
 
   useEffect(() => {
     if (!activeRoute) {
@@ -408,6 +576,12 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     if (!webApp) return
     webApp.expand()
   }, [webApp])
+
+  useEffect(() => {
+    if (!saveMessage) return
+    const timer = setTimeout(() => setSaveMessage(''), 2200)
+    return () => clearTimeout(timer)
+  }, [saveMessage])
 
   const visibleRoutes = useMemo(() => {
     let result = [...routes]
@@ -780,7 +954,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   useEffect(() => {
-    if (!activePoint) {
+    if (!activePoint || !activeRoute) {
       setWikiInfo({
         loading: false,
         error: false,
@@ -791,29 +965,10 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
       return
     }
 
-    const baseTitle = activePoint.point.title || ''
-    let normalizedTitle = baseTitle.trim()
+    const titleForWiki = activePoint.point.title || ''
+    const descriptionForWiki = activePoint.point.description || ''
 
-    normalizedTitle = normalizedTitle
-      .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
-      .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
-      .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
-      .replace(/^Переезд\s+в\s+/i, '')
-      .trim()
-
-    if (/кафедральный собор и остров канта/i.test(baseTitle)) {
-      normalizedTitle = 'Кафедральный собор (Калининград)'
-    }
-
-    const fallbackFromDescription =
-      activePoint.point.description &&
-      activePoint.point.description.length < 40
-        ? activePoint.point.description
-        : ''
-
-    const titleForWiki = normalizedTitle || fallbackFromDescription
-
-    if (!titleForWiki) {
+    if (!titleForWiki.trim()) {
       setWikiInfo({
         loading: false,
         error: false,
@@ -835,7 +990,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     let isCancelled = false
 
     const loadWiki = async () => {
-      const data = await fetchWikiExtract(titleForWiki)
+      const data = await fetchWikiExtract(
+        titleForWiki,
+        activeRoute.city || cityTitle,
+        descriptionForWiki
+      )
 
       if (isCancelled) return
 
@@ -862,7 +1021,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
     return () => {
       isCancelled = true
     }
-  }, [activePoint])
+  }, [activePoint, activeRoute, cityTitle])
 
   const handleSelectRoute = (route: PopularRoute) => {
     setActiveRoute(route)
@@ -911,25 +1070,49 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
   }
 
   const handleSendToMyTrips = () => {
-    if (!webApp || !activeRoute) return
+    if (!activeRoute) return
+
+    const now = new Date().toISOString()
+
+    const savedTrip: SavedTrip = {
+      id: `${activeRoute.id}_${cityTitle}`,
+      city: cityTitle,
+      routeId: activeRoute.id,
+      title: activeRoute.title,
+      shortDescription: activeRoute.shortDescription,
+      daysCount: activeRoute.daysCount,
+      difficulty: activeRoute.difficulty,
+      distanceKm: activeRoute.distanceKm,
+      estimatedBudget: (activeRoute as any).estimatedBudget,
+      season: (activeRoute as any).season,
+      coverImage:
+        routeImages[0] ||
+        ((activeRoute as any).coverImage as string | undefined) ||
+        cityCoverUrl,
+      hiddenPoints,
+      extraPoints,
+      routeSnapshot: activeRoute,
+      createdAt: now,
+      updatedAt: now
+    }
+
+    saveTripToLocalStorage(savedTrip)
 
     const payload = {
       type: 'save_route_to_trips',
       city: cityTitle,
       routeId: activeRoute.id,
+      title: activeRoute.title,
       hiddenPoints,
-      extraPoints
+      extraPoints,
+      savedAt: now
     }
-
-    const data = JSON.stringify(payload)
 
     if (webApp?.sendData) {
-      webApp.sendData(data)
-    } else {
-      alert(
-        'Маршрут будет сохранён в "Мои поездки" при запуске мини-приложения в Telegram.'
-      )
+      webApp.sendData(JSON.stringify(payload))
     }
+
+    setSaveMessage('Маршрут сохранён в «Мои поездки»')
   }
 
   const activeRoutePointsCount = activeRoute ? countRoutePoints(activeRoute) : 0
@@ -937,6 +1120,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
 
   return (
     <div className="popular-routes-page">
+      {saveMessage && <div className="pr-save-toast">{saveMessage}</div>}
+
       <div className="pr-header">
         <button className="pr-back-btn" type="button" onClick={onBack}>
           ← Назад
@@ -1000,7 +1185,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
         <div className="places-section">
           <div className="section-title">Достопримечательности города и области</div>
           <div className="section-subtitle">
-            Выбирай место, смотри фотографии, краткое описание и добавляй его в свой маршрут.
+            Выбирай место, смотри фотографии, описание и добавляй его в свой маршрут.
           </div>
 
           <div className="pr-top-summary">
@@ -1123,6 +1308,21 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack }) => {
               <div className="section-title">Готовые маршруты</div>
               <div className="section-subtitle">
                 Выбери сложность, длительность и открой готовый сценарий поездки.
+              </div>
+
+              <div className="pr-top-summary">
+                <div className="pr-summary-card">
+                  <div className="pr-summary-label">Всего маршрутов</div>
+                  <div className="pr-summary-value">{visibleRoutes.length}</div>
+                </div>
+                <div className="pr-summary-card">
+                  <div className="pr-summary-label">Уникальных мест</div>
+                  <div className="pr-summary-value">{totalUniquePoints}</div>
+                </div>
+                <div className="pr-summary-card">
+                  <div className="pr-summary-label">Диапазон</div>
+                  <div className="pr-summary-value">1–{maxDaysAvailable} дней</div>
+                </div>
               </div>
 
               <div className="pr-filters">
