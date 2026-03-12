@@ -1,63 +1,93 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
-import {
-  readSavedPostIds,
-  readLikedPostIds,
-  writeLikedPostIds,
-  writeSavedPostIds,
-} from '../utils/socialStorage'
-import './FeedPage.css'
+import { useTelegramWebApp } from '../hooks/useTelegramWebApp'
+import './PopularRoutesPage.css'
 
 type Props = {
-  onOpenRoutes: (city: string, routeId?: string) => void
-  onCreateRoute?: () => void
-  onCreatePlace?: () => void
-  onCreateMoment?: () => void
+  city: string
+  onBack: () => void
+  initialRouteId?: string
 }
 
-type FeedPostType = 'route' | 'place' | 'moment'
+type SortMode = 'popularity' | 'days' | 'difficulty'
+type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
+type ViewMode = 'places' | 'ai' | 'routes'
 
-type FeedPost = {
-  id: string
-  type: FeedPostType
+type ActivePointState = {
   routeId: string
-  city: string
-  cityFolder: string
-  title: string
-  description: string
-  image: string
-  images: string[]
-  likes: number
-  daysCount?: number
-  pointsCount?: number
-  difficulty?: string
-  distanceKm?: number
-  previewPoints: string[]
+  dayTitle: string
+  dayIndex: number
+  pointIndex: number
+  point: {
+    title: string
+    time?: string
+    description?: string
+    images?: string[]
+  }
+}
+
+type WikiState = {
+  loading: boolean
+  error: boolean
+  extract: string | null
+  url: string | null
+}
+
+type PlaceItem = {
+  id: string
   route: PopularRoute
-  createdAt: string
-  sourceRouteTitle?: string
-  pointTitle?: string
-  pointTime?: string
-  pointIndex?: number
-  dayTitle?: string
+  dayIndex: number
+  dayTitle: string
+  pointIndex: number
+  point: {
+    title: string
+    time?: string
+    description?: string
+    images?: string[]
+  }
 }
 
 type RoutePoint = PopularRoute['days'][number]['points'][number]
 
-const FEED_LIKES_KEY = 'progid_feed_likes_map'
-const FEED_IMAGE_CACHE_KEY = 'progid_feed_image_cache_v2'
-const POINT_IMAGE_CACHE_KEY = 'progid_feed_point_image_cache_v1'
+type SavedTrip = {
+  id: string
+  city: string
+  routeId: string
+  title: string
+  shortDescription?: string
+  daysCount: number
+  difficulty?: string
+  distanceKm?: number
+  estimatedBudget?: number
+  season?: string
+  coverImage?: string
+  hiddenPoints: Record<number, number[]>
+  extraPoints: Record<number, RoutePoint[]>
+  routeSnapshot: PopularRoute
+  createdAt: string
+  updatedAt: string
+}
+
 const LOCAL_TRIPS_KEY = 'progid_my_trips'
 
-const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://progid-backend.vercel.app'
+const normalizeCityKey = (city: string): string => {
+  const c = city.toLowerCase().trim()
 
-const CLOUD_BASE_URL =
-  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://storage.yandexcloud.net/progid-images-novichihin'
+  if (c.includes('калининг')) return 'kaliningrad'
+  if (c.includes('moscow') || c.includes('моск')) return 'moscow'
+  if (
+    c.includes('петербург') ||
+    c.includes('санкт') ||
+    c.includes('spb') ||
+    c.includes('спб')
+  ) {
+    return 'spb'
+  }
+  if (c.includes('сочи')) return 'sochi'
+  if (c.includes('казан')) return 'kazan'
 
-const MAX_CLOUD_POINT_IMAGES = 8
+  return city
+}
 
 const normalizeCityFolder = (city: string): string => {
   const c = city.toLowerCase().trim()
@@ -78,19 +108,9 @@ const normalizeCityFolder = (city: string): string => {
   return c
 }
 
-const getCityCoverUrl = (cityFolder: string): string =>
-  `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
-
-const routeDifficultyLabel = (difficulty?: string): string => {
-  if (difficulty === 'medium') return 'Средний'
-  if (difficulty === 'hard') return 'Сложный'
-  return 'Лёгкий'
-}
-
-const feedTypeLabel = (type: FeedPostType): string => {
-  if (type === 'place') return 'Место'
-  if (type === 'moment') return 'Момент'
-  return 'Маршрут'
+const getAllRoutes = (): PopularRoute[] => {
+  const arrays = Object.values(POPULAR_ROUTES)
+  return arrays.flat()
 }
 
 const declension = (
@@ -107,215 +127,60 @@ const declension = (
   return many
 }
 
-const isUtilityPoint = (title?: string): boolean => {
-  const t = (title || '').toLowerCase().trim()
-  if (!t) return true
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://progid-backend.vercel.app'
 
-  const utilityPatterns = [
-    /^переезд/,
-    /^завтрак/,
-    /^обед/,
-    /^ужин/,
-    /^кофе/,
-    /^ланч/,
-    /^перекус/,
-    /^возвращение/,
-    /^заселение/,
-    /^выезд/,
-    /^дорога/,
-    /^прогулка$/,
-    /^свободное время$/,
-    /^отдых$/,
-    /^шопинг$/,
-    /^магазин$/,
-    /^рынок$/,
-  ]
+const CLOUD_BASE_URL =
+  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://storage.yandexcloud.net/progid-images-novichihin'
 
-  return utilityPatterns.some(re => re.test(t))
+const getCityCoverUrl = (cityFolder: string): string =>
+  `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
+
+const MAX_CLOUD_POINT_IMAGES = 8
+
+const normalizeText = (text: string): string => {
+  return text.replace(/\s+/g, ' ').trim()
 }
 
-const countRoutePoints = (route: PopularRoute): number => {
-  return route.days.reduce((sum, day) => sum + day.points.length, 0)
+const cleanupPlaceTitle = (title: string): string => {
+  return normalizeText(title)
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
+    .replace(/^Переезд\s+в\s+/i, '')
+    .replace(/^Прогулка\s+по\s+/i, '')
+    .replace(/^Посещение\s+/i, '')
+    .replace(/^Осмотр\s+/i, '')
+    .trim()
 }
 
-const uniqueStrings = (items: string[]): string[] => {
-  return Array.from(new Set(items.map(v => v?.trim()).filter(Boolean) as string[]))
+const slugify = (value: string): string => {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/ё/g, 'е')
+    .replace(/[^a-zа-я0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
 }
 
-const buildRoutePreview = (route: PopularRoute): string[] => {
-  const points: string[] = []
-
-  for (const day of route.days) {
-    for (const point of day.points) {
-      const title = point.title?.trim()
-      if (!title || isUtilityPoint(title)) continue
-      if (!points.includes(title)) points.push(title)
-      if (points.length >= 4) return points
-    }
-  }
-
-  return points
+const buildPlaceSlug = (title?: string, fallback = 'place'): string => {
+  const clean = cleanupPlaceTitle(title || '')
+  const slug = slugify(clean)
+  return slug || fallback
 }
 
-const buildRouteDescription = (route: PopularRoute): string => {
-  if (route.shortDescription?.trim()) return route.shortDescription.trim()
-
-  const preview = buildRoutePreview(route)
-  if (preview.length > 0) {
-    return preview.join(', ')
-  }
-
-  return 'Готовый маршрут по городу с удобной последовательностью мест.'
+const buildPlaceCacheKey = (city: string, title?: string): string => {
+  const cityKey = slugify(normalizeCityFolder(city || 'city'))
+  const placeSlug = buildPlaceSlug(title, 'place')
+  return `${cityKey}_${placeSlug}`
 }
 
-const hasOwnCoverImage = (route: PopularRoute): boolean => {
-  const coverImage = (route as any).coverImage as string | undefined
-  const images = (route as any).images as string[] | undefined
-  return !!coverImage || (Array.isArray(images) && images.length > 0)
-}
-
-const getInitialRouteCoverImage = (
-  route: PopularRoute,
-  cityFolder: string,
-  imageCache: Record<string, string>
-): string => {
-  const cached = imageCache[route.id]
-  if (cached) return cached
-
-  const coverImage = (route as any).coverImage as string | undefined
-  const images = (route as any).images as string[] | undefined
-
-  if (coverImage) return coverImage
-  if (Array.isArray(images) && images.length > 0) return images[0]
-
-  return getCityCoverUrl(cityFolder)
-}
-
-const collectRouteImages = (
-  route: PopularRoute,
-  cityFolder: string,
-  imageCache: Record<string, string>
-): string[] => {
-  const result: string[] = []
-
-  const cached = imageCache[route.id]
-  if (cached) result.push(cached)
-
-  const coverImage = (route as any).coverImage as string | undefined
-  const routeImages = (route as any).images as string[] | undefined
-
-  if (coverImage) result.push(coverImage)
-  if (Array.isArray(routeImages)) result.push(...routeImages)
-
-  for (const day of route.days) {
-    for (const point of day.points) {
-      if (Array.isArray(point.images)) {
-        result.push(...point.images)
-      }
-    }
-  }
-
-  if (result.length === 0) {
-    result.push(getCityCoverUrl(cityFolder))
-  }
-
-  return uniqueStrings(result)
-}
-
-const readLikesMap = (): Record<string, number> => {
-  try {
-    const raw = localStorage.getItem(FEED_LIKES_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-const writeLikesMap = (map: Record<string, number>) => {
-  localStorage.setItem(FEED_LIKES_KEY, JSON.stringify(map))
-}
-
-const readImageCache = (): Record<string, string> => {
-  try {
-    const raw = localStorage.getItem(FEED_IMAGE_CACHE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-const writeImageCache = (map: Record<string, string>) => {
-  localStorage.setItem(FEED_IMAGE_CACHE_KEY, JSON.stringify(map))
-}
-
-const readPointImageCache = (): Record<string, string[]> => {
-  try {
-    const raw = localStorage.getItem(POINT_IMAGE_CACHE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-const writePointImageCache = (map: Record<string, string[]>) => {
-  localStorage.setItem(POINT_IMAGE_CACHE_KEY, JSON.stringify(map))
-}
-
-const getPointCacheKey = (routeId: string, pointIndex: number): string =>
-  `${routeId}__${pointIndex}`
-
-const saveRouteToMyTrips = (route: PopularRoute, image: string) => {
-  const now = new Date().toISOString()
-
-  const savedTrip = {
-    id: `${route.id}_${route.city}`,
-    city: route.city,
-    routeId: route.id,
-    title: route.title,
-    shortDescription: route.shortDescription,
-    daysCount: route.daysCount,
-    difficulty: route.difficulty,
-    distanceKm: route.distanceKm,
-    estimatedBudget: (route as any).estimatedBudget,
-    season: (route as any).season,
-    coverImage: image,
-    hiddenPoints: {},
-    extraPoints: {},
-    routeSnapshot: route,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  try {
-    const raw = localStorage.getItem(LOCAL_TRIPS_KEY)
-    const current = raw ? JSON.parse(raw) : []
-    const arr = Array.isArray(current) ? current : []
-
-    const existingIndex = arr.findIndex(
-      (item: any) => item.routeId === savedTrip.routeId && item.city === savedTrip.city
-    )
-
-    if (existingIndex >= 0) {
-      arr[existingIndex] = {
-        ...arr[existingIndex],
-        ...savedTrip,
-        createdAt: arr[existingIndex].createdAt,
-        updatedAt: now,
-      }
-    } else {
-      arr.unshift(savedTrip)
-    }
-
-    localStorage.setItem(LOCAL_TRIPS_KEY, JSON.stringify(arr))
-  } catch {
-    localStorage.setItem(LOCAL_TRIPS_KEY, JSON.stringify([savedTrip]))
-  }
+const buildPlaceCloudPrefix = (cityFolder: string, title?: string): string => {
+  const placeSlug = buildPlaceSlug(title, 'place')
+  return `${CLOUD_BASE_URL}/${cityFolder}/places/${placeSlug}`
 }
 
 const probeImageUrl = (url: string): Promise<boolean> => {
@@ -325,6 +190,23 @@ const probeImageUrl = (url: string): Promise<boolean> => {
     img.onerror = () => resolve(false)
     img.src = url
   })
+}
+
+const loadCloudPointImages = async (
+  cityFolder: string,
+  title?: string
+): Promise<string[]> => {
+  const urls: string[] = []
+  const prefix = buildPlaceCloudPrefix(cityFolder, title)
+
+  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
+    const url = `${prefix}/image-${i}.jpg`
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await probeImageUrl(url)
+    if (ok) urls.push(url)
+  }
+
+  return urls
 }
 
 const extractPhotosFromApi = (data: any): string[] => {
@@ -351,964 +233,1840 @@ const extractPhotosFromApi = (data: any): string[] => {
   return []
 }
 
-const loadCloudPointImages = async (
-  cityFolder: string,
-  routeId: string,
-  pointIndex: number
-): Promise<string[]> => {
-  const goodUrls: string[] = []
+const prepareYandexEmbed = (raw: string): string => {
+  const urlStr = raw.startsWith('https://yandex.ru/maps/')
+    ? raw.replace('https://yandex.ru/maps/', 'https://yandex.ru/map-widget/v1/')
+    : raw
 
-  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}/image-${i}.jpg`
-    // eslint-disable-next-line no-await-in-loop
-    const ok = await probeImageUrl(url)
-    if (ok) goodUrls.push(url)
+  try {
+    const url = new URL(urlStr)
+    const rtext = url.searchParams.get('rtext')
+    const alreadyHasPt = url.searchParams.has('pt')
+
+    if (rtext && !alreadyHasPt) {
+      const pts = rtext
+        .split('~')
+        .map(s => s.trim())
+        .filter(Boolean)
+
+      if (pts.length > 0) {
+        const ptParam = pts.map(p => `${p},pm2rdm`).join('~')
+        url.searchParams.set('pt', ptParam)
+      }
+    }
+
+    return url.toString()
+  } catch {
+    return urlStr
   }
-
-  return goodUrls
 }
 
-const findFirstMeaningfulPoint = (
-  route: PopularRoute
-): { pointIndex: number; title: string } | null => {
-  let globalIndex = 0
+const getEmbedUrl = (route: PopularRoute): string | undefined => {
+  const embed = (route as any).yandexMapEmbedUrl as string | undefined
+  const plain = (route as any).yandexMapUrl as string | undefined
 
+  if (embed) return prepareYandexEmbed(embed)
+  if (plain) return prepareYandexEmbed(plain)
+
+  return undefined
+}
+
+const isUtilityPoint = (title?: string): boolean => {
+  const t = (title || '').toLowerCase().trim()
+  if (!t) return true
+
+  const utilityPatterns = [
+    /^переезд/,
+    /^завтрак/,
+    /^обед/,
+    /^ужин/,
+    /^кофе/,
+    /^ланч/,
+    /^перекус/,
+    /^возвращение/,
+    /^заселение/,
+    /^выезд/,
+    /^дорога/,
+    /^прогулка$/,
+    /^свободное время$/,
+    /^отдых$/,
+    /^шопинг$/,
+    /^магазин$/,
+    /^рынок$/
+  ]
+
+  return utilityPatterns.some(re => re.test(t))
+}
+
+const routeDifficultyLabel = (difficulty?: string): string => {
+  if (difficulty === 'medium') return 'Средний'
+  if (difficulty === 'hard') return 'Сложный'
+  return 'Лёгкий'
+}
+
+const routeDifficultyClass = (difficulty?: string): string => {
+  if (difficulty === 'medium') return 'is-medium'
+  if (difficulty === 'hard') return 'is-hard'
+  return 'is-easy'
+}
+
+const countRoutePoints = (route: PopularRoute): number => {
+  return route.days.reduce((sum, day) => sum + day.points.length, 0)
+}
+
+const buildRoutePreview = (route: PopularRoute): string[] => {
+  const points: string[] = []
   for (const day of route.days) {
     for (const point of day.points) {
-      const title = point.title?.trim() || ''
-      if (!isUtilityPoint(title)) {
-        return { pointIndex: globalIndex, title }
-      }
-      globalIndex += 1
+      const title = point.title?.trim()
+      if (!title || isUtilityPoint(title)) continue
+      if (!points.includes(title)) points.push(title)
+      if (points.length >= 3) return points
+    }
+  }
+  return points
+}
+
+const stripHtml = (text: string): string => {
+  return text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&laquo;/g, '«')
+    .replace(/&raquo;/g, '»')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+const cleanWikiExtract = (text: string): string => {
+  return normalizeText(stripHtml(text))
+    .replace(/\[\d+\]/g, '')
+    .replace(/\s+\./g, '.')
+}
+
+const uniqueStrings = (items: string[]): string[] => {
+  return Array.from(new Set(items.map(i => i.trim()).filter(Boolean)))
+}
+
+const buildWikiCandidates = (
+  rawTitle: string,
+  cityTitle: string,
+  pointDescription?: string
+): string[] => {
+  const title = normalizeText(rawTitle)
+  const city = normalizeText(cityTitle)
+
+  const cleaned = cleanupPlaceTitle(title)
+
+  const aliasMap: Record<string, string[]> = {
+    'верхнее озеро и парк «юность»': [
+      'Верхнее озеро (Калининград)',
+      'Парк Юность (Калининград)',
+      'Верхнее озеро Калининград',
+      'Парк Юность Калининград'
+    ],
+    'верхнее озеро и парк "юность"': [
+      'Верхнее озеро (Калининград)',
+      'Парк Юность (Калининград)',
+      'Верхнее озеро Калининград',
+      'Парк Юность Калининград'
+    ],
+    'кафедральный собор и остров канта': [
+      'Кафедральный собор (Калининград)',
+      'Остров Канта',
+      'Кнайпхоф'
+    ],
+    'рыбная деревня': ['Рыбная деревня (Калининград)'],
+    'музей мирового океана': ['Музей Мирового океана'],
+    'нижнее озеро': ['Нижнее озеро (Калининград)', 'Нижнее озеро Калининград'],
+    'верхнее озеро': ['Верхнее озеро (Калининград)', 'Верхнее озеро Калининград']
+  }
+
+  const aliases = aliasMap[cleaned.toLowerCase()] ?? []
+
+  const descriptionBased: string[] = []
+  if (pointDescription) {
+    const desc = normalizeText(pointDescription)
+    if (desc.length > 3 && desc.length < 80) {
+      descriptionBased.push(desc)
     }
   }
 
+  return uniqueStrings([
+    cleaned,
+    `${cleaned} (${city})`,
+    `${cleaned} ${city}`,
+    ...aliases,
+    ...descriptionBased
+  ])
+}
+
+const fetchWikiSummaryDirect = async (
+  title: string
+): Promise<{ extract: string; url: string } | null> => {
+  try {
+    const summaryUrl = `https://ru.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+      title
+    )}`
+
+    const res = await fetch(summaryUrl, {
+      headers: { Accept: 'application/json' }
+    })
+
+    if (!res.ok) return null
+
+    const data = await res.json()
+
+    const rawExtract =
+      typeof data.extract === 'string'
+        ? data.extract
+        : typeof data.extract_html === 'string'
+          ? data.extract_html
+          : typeof data.description === 'string'
+            ? data.description
+            : ''
+
+    const extract = cleanWikiExtract(rawExtract)
+    const url =
+      data?.content_urls?.desktop?.page ||
+      `https://ru.wikipedia.org/wiki/${encodeURIComponent(title)}`
+
+    if (!extract) return null
+
+    return { extract, url }
+  } catch {
+    return null
+  }
+}
+
+const fetchWikiBySearch = async (
+  title: string
+): Promise<{ extract: string; url: string } | null> => {
+  try {
+    const searchUrl = `https://ru.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
+      title
+    )}&limit=1&namespace=0&format=json&origin=*`
+
+    const searchRes = await fetch(searchUrl)
+    if (!searchRes.ok) return null
+
+    const searchData = (await searchRes.json()) as [string, string[], string[], string[]]
+    const foundTitle = searchData[1]?.[0]
+    if (!foundTitle) return null
+
+    return await fetchWikiSummaryDirect(foundTitle)
+  } catch {
+    return null
+  }
+}
+
+const fetchWikiExtract = async (
+  rawTitle: string,
+  cityTitle: string,
+  pointDescription?: string
+): Promise<{ extract: string; url: string } | null> => {
+  const candidates = buildWikiCandidates(rawTitle, cityTitle, pointDescription)
+
+  for (const candidate of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const direct = await fetchWikiSummaryDirect(candidate)
+    if (direct) return direct
+
+    // eslint-disable-next-line no-await-in-loop
+    const searched = await fetchWikiBySearch(candidate)
+    if (searched) return searched
+  }
+
   return null
 }
 
-const resolveRouteImage = async (
-  route: PopularRoute,
-  cityFolder: string
-): Promise<string | null> => {
-  const point = findFirstMeaningfulPoint(route)
-  if (!point) return null
-
+const readSavedTrips = (): SavedTrip[] => {
   try {
-    const cloudPhotos = await loadCloudPointImages(cityFolder, route.id, point.pointIndex)
-    if (cloudPhotos.length > 0) return cloudPhotos[0]
+    const raw = localStorage.getItem(LOCAL_TRIPS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
   } catch {
-    // ignore
+    return []
   }
-
-  try {
-    const params = new URLSearchParams({
-      routeId: route.id,
-      pointIndex: String(point.pointIndex),
-      city: route.city,
-      title: point.title,
-    })
-
-    const resp = await fetch(`${API_BASE}/api/photos?${params.toString()}`)
-    if (!resp.ok) return null
-
-    const data = await resp.json()
-    const photos = extractPhotosFromApi(data)
-    if (photos.length > 0) return photos[0]
-  } catch {
-    // ignore
-  }
-
-  return null
 }
 
-const resolvePointImages = async (
-  route: PopularRoute,
-  cityFolder: string,
-  pointTitle: string,
-  pointIndex: number
-): Promise<string[]> => {
-  try {
-    const cloudPhotos = await loadCloudPointImages(cityFolder, route.id, pointIndex)
-    if (cloudPhotos.length > 0) return cloudPhotos
-  } catch {
-    // ignore
+const saveTripToLocalStorage = (trip: SavedTrip): void => {
+  const current = readSavedTrips()
+  const existingIndex = current.findIndex(
+    item => item.routeId === trip.routeId && item.city === trip.city
+  )
+
+  if (existingIndex >= 0) {
+    current[existingIndex] = {
+      ...current[existingIndex],
+      ...trip,
+      createdAt: current[existingIndex].createdAt,
+      updatedAt: new Date().toISOString()
+    }
+  } else {
+    current.unshift(trip)
   }
 
-  try {
-    const params = new URLSearchParams({
-      routeId: route.id,
-      pointIndex: String(pointIndex),
-      city: route.city,
-      title: pointTitle,
-    })
+  localStorage.setItem(LOCAL_TRIPS_KEY, JSON.stringify(current))
+}
 
-    const resp = await fetch(`${API_BASE}/api/photos?${params.toString()}`)
-    if (!resp.ok) return []
+export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteId }) => {
+  const { webApp } = useTelegramWebApp()
 
-    const data = await resp.json()
-    const photos = extractPhotosFromApi(data)
-    if (photos.length > 0) return photos
-  } catch {
-    // ignore
+  const cityKey = normalizeCityKey(city)
+
+  let routes = POPULAR_ROUTES[cityKey] ?? POPULAR_ROUTES[city]
+  if (!routes || routes.length === 0) {
+    routes = getAllRoutes()
   }
 
-  return []
-}
+  const cityTitle = routes[0]?.city ?? city
+  const cityFolder = normalizeCityFolder(cityTitle)
+  const cityCoverUrl = getCityCoverUrl(cityFolder)
 
-const buildPlaceDescription = (
-  point: RoutePoint,
-  route: PopularRoute,
-  dayTitle: string
-): string => {
-  if (point.description?.trim()) return point.description.trim()
-  return `${point.title} · ${dayTitle} · из маршрута «${route.title}»`
-}
+  const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
 
-const buildMomentDescription = (
-  point: RoutePoint,
-  route: PopularRoute,
-  dayTitle: string
-): string => {
-  const pieces = [
-    point.time?.trim(),
-    dayTitle.trim(),
-    route.city.trim(),
-    point.description?.trim(),
-  ].filter(Boolean)
+  const [sortMode, setSortMode] = useState<SortMode>('popularity')
+  const [difficultyFilter, setDifficultyFilter] =
+    useState<DifficultyFilter>('all')
 
-  if (pieces.length > 0) return pieces.join(' · ')
-  return `Момент из маршрута «${route.title}»`
-}
+  const maxDaysAvailable =
+    routes.length > 0 ? Math.max(...routes.map(r => r.daysCount)) : 1
 
-export const FeedPage: React.FC<Props> = ({
-  onOpenRoutes,
-  onCreateRoute,
-  onCreatePlace,
-  onCreateMoment,
-}) => {
-  const [likedIds, setLikedIds] = useState<string[]>([])
-  const [savedIds, setSavedIds] = useState<string[]>([])
-  const [likesMap, setLikesMap] = useState<Record<string, number>>({})
-  const [imageCache, setImageCache] = useState<Record<string, string>>({})
-  const [pointImageCache, setPointImageCache] = useState<Record<string, string[]>>({})
-  const [activePost, setActivePost] = useState<FeedPost | null>(null)
-  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
-  const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
-  const [saveToast, setSaveToast] = useState('')
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
-  const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
+  const [maxDaysFilter, setMaxDaysFilter] = useState<number>(maxDaysAvailable)
+  const [mainImageIndex, setMainImageIndex] = useState<number>(0)
+  const [routeImages, setRouteImages] = useState<string[]>([])
+  const [failedRouteImages, setFailedRouteImages] = useState<Record<string, boolean>>({})
+
+  const [activePoint, setActivePoint] = useState<ActivePointState | null>(null)
+  const [pointImages, setPointImages] = useState<string[]>([])
+  const [activeImageIndex, setActiveImageIndex] = useState<number>(0)
+  const [isPointImagesLoading, setIsPointImagesLoading] = useState<boolean>(false)
+  const [failedPointImages, setFailedPointImages] = useState<Record<string, boolean>>({})
+
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
+  const [zoomedImageTitle, setZoomedImageTitle] = useState<string>('')
+
+  const [wikiInfo, setWikiInfo] = useState<WikiState>({
+    loading: false,
+    error: false,
+    extract: null,
+    url: null
+  })
+  const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
+
+  const [pointPhotosCache, setPointPhotosCache] = useState<Record<string, string[]>>({})
+  const [viewMode, setViewMode] = useState<ViewMode>('routes')
+  const [hiddenPoints, setHiddenPoints] = useState<Record<number, number[]>>({})
+  const [extraPoints, setExtraPoints] = useState<Record<number, RoutePoint[]>>({})
+  const [isAddPlaceOpen, setIsAddPlaceOpen] = useState(false)
+  const [placesQuery, setPlacesQuery] = useState('')
+  const [showOnlyMeaningfulPlaces, setShowOnlyMeaningfulPlaces] = useState(true)
+  const [saveMessage, setSaveMessage] = useState('')
+
+  const visibleRouteImages = useMemo(
+    () => routeImages.filter(img => !failedRouteImages[img]),
+    [routeImages, failedRouteImages]
+  )
+
+  const visiblePointImages = useMemo(
+    () => pointImages.filter(img => !failedPointImages[img]),
+    [pointImages, failedPointImages]
+  )
 
   useEffect(() => {
-    setLikedIds(readLikedPostIds())
-    setSavedIds(readSavedPostIds())
-    setLikesMap(readLikesMap())
-    setImageCache(readImageCache())
-    setPointImageCache(readPointImageCache())
-  }, [])
+    if (!activeRoute) {
+      setMainImageIndex(0)
+      setRouteImages([])
+      setFailedRouteImages({})
+      setActivePoint(null)
+      setPointImages([])
+      setFailedPointImages({})
+      setActiveImageIndex(0)
+      setIsPointImagesLoading(false)
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: null,
+        url: null
+      })
+      setIsWikiVisible(false)
+      setHiddenPoints({})
+      setExtraPoints({})
+      setIsAddPlaceOpen(false)
+    }
+  }, [activeRoute])
 
   useEffect(() => {
-    if (!saveToast) return
-    const timer = setTimeout(() => setSaveToast(''), 2200)
+    setMaxDaysFilter(maxDaysAvailable)
+  }, [maxDaysAvailable])
+
+  useEffect(() => {
+    if (!webApp) return
+    webApp.expand()
+  }, [webApp])
+
+  useEffect(() => {
+    if (!saveMessage) return
+    const timer = setTimeout(() => setSaveMessage(''), 2200)
     return () => clearTimeout(timer)
-  }, [saveToast])
+  }, [saveMessage])
 
   useEffect(() => {
+    if (visibleRouteImages.length === 0) {
+      setMainImageIndex(0)
+      return
+    }
+    if (mainImageIndex >= visibleRouteImages.length) {
+      setMainImageIndex(0)
+    }
+  }, [visibleRouteImages.length, mainImageIndex])
+
+  useEffect(() => {
+    if (visiblePointImages.length === 0) {
+      setActiveImageIndex(0)
+      return
+    }
+    if (activeImageIndex >= visiblePointImages.length) {
+      setActiveImageIndex(0)
+    }
+  }, [visiblePointImages.length, activeImageIndex])
+
+  useEffect(() => {
+    const shouldLock = !!activePoint || !!zoomedImage
     const prevOverflow = document.body.style.overflow
-    if (activePost) {
+    if (shouldLock) {
       document.body.style.overflow = 'hidden'
     }
     return () => {
       document.body.style.overflow = prevOverflow
     }
-  }, [activePost])
+  }, [activePoint, zoomedImage])
 
-  const posts = useMemo<FeedPost[]>(() => {
-    const allRoutes = Object.values(POPULAR_ROUTES).flat()
-    const mixedPosts: FeedPost[] = []
+  const visibleRoutes = useMemo(() => {
+    let result = [...routes]
+    result = result.filter(r => r.daysCount <= maxDaysFilter)
 
-    allRoutes.forEach((route, routeIndex) => {
-      const cityFolder = normalizeCityFolder(route.city)
-      const routeImages = collectRouteImages(route, cityFolder, imageCache)
-      const routePostId = `route_post_${route.id}`
-      const pointsCount = countRoutePoints(route)
-      const previewPoints = buildRoutePreview(route)
-      const baseLikes = typeof route.popularity === 'number' ? route.popularity : 0
-      const routeLikes =
-        likesMap[routePostId] ?? Math.max(6, Math.round(baseLikes / 8) || routeIndex + 7)
+    if (difficultyFilter !== 'all') {
+      result = result.filter(r => (r.difficulty ?? 'easy') === difficultyFilter)
+    }
 
-      mixedPosts.push({
-        id: routePostId,
-        type: 'route',
-        routeId: route.id,
-        city: route.city,
-        cityFolder,
-        title: route.title,
-        description: buildRouteDescription(route),
-        image: routeImages[0],
-        images: routeImages,
-        likes: routeLikes,
-        daysCount: route.daysCount,
-        pointsCount,
-        difficulty: route.difficulty,
-        distanceKm: route.distanceKm,
-        previewPoints,
-        route,
-        createdAt: new Date(Date.now() - routeIndex * 1000 * 60 * 60 * 5).toISOString(),
+    result.sort((a, b) => {
+      if (sortMode === 'days') {
+        return a.daysCount - b.daysCount
+      }
+      if (sortMode === 'difficulty') {
+        const order: DifficultyFilter[] = ['easy', 'medium', 'hard']
+        const da = order.indexOf((a.difficulty ?? 'easy') as DifficultyFilter)
+        const db = order.indexOf((b.difficulty ?? 'easy') as DifficultyFilter)
+        return da - db
+      }
+
+      const pa = a.popularity ?? 0
+      const pb = b.popularity ?? 0
+      return pb - pa
+    })
+
+    return result
+  }, [routes, sortMode, difficultyFilter, maxDaysFilter])
+
+  const allPlaces = useMemo<PlaceItem[]>(() => {
+    const list: PlaceItem[] = []
+    const usedTitles = new Set<string>()
+
+    for (const route of routes) {
+      route.days.forEach((day, dayIdx) => {
+        day.points.forEach((point, pointIdx) => {
+          const normalizedTitle = (point.title || '').toLowerCase().trim()
+          if (!normalizedTitle) return
+          if (usedTitles.has(normalizedTitle)) return
+          usedTitles.add(normalizedTitle)
+
+          list.push({
+            id: `${route.id}_${dayIdx}_${pointIdx}`,
+            route,
+            dayIndex: dayIdx,
+            dayTitle: day.title,
+            pointIndex: pointIdx,
+            point
+          })
+        })
       })
+    }
 
-      let meaningfulIndex = 0
-      let globalPointIndex = 0
+    return list
+  }, [routes])
 
-      route.days.forEach((day, dayIndex) => {
-        day.points.forEach((point, pointIndex) => {
-          const currentPointIndex = globalPointIndex
-          globalPointIndex += 1
+  const visiblePlaces = useMemo<PlaceItem[]>(() => {
+    const q = placesQuery.toLowerCase().trim()
 
-          const title = point.title?.trim() || ''
-          if (!title || isUtilityPoint(title)) return
+    return allPlaces.filter(place => {
+      const title = place.point.title || ''
+      const description = place.point.description || ''
 
-          const pointCacheKey = getPointCacheKey(route.id, currentPointIndex)
-          const cachedPointImages = pointImageCache[pointCacheKey] ?? []
+      if (showOnlyMeaningfulPlaces && isUtilityPoint(title)) {
+        return false
+      }
 
-          const pointImages = uniqueStrings([
-            ...cachedPointImages,
-            ...(Array.isArray(point.images) ? point.images : []),
-            ...routeImages,
-          ])
+      if (!q) return true
 
-          const placeId = `place_post_${route.id}_${dayIndex}_${pointIndex}`
-          const placeLikes =
-            likesMap[placeId] ??
-            Math.max(3, Math.round(baseLikes / 12) + meaningfulIndex + 2)
+      return (
+        title.toLowerCase().includes(q) ||
+        description.toLowerCase().includes(q) ||
+        place.route.title.toLowerCase().includes(q) ||
+        place.dayTitle.toLowerCase().includes(q)
+      )
+    })
+  }, [allPlaces, placesQuery, showOnlyMeaningfulPlaces])
 
-          mixedPosts.push({
-            id: placeId,
-            type: 'place',
-            routeId: route.id,
-            city: route.city,
-            cityFolder,
-            title,
-            description: buildPlaceDescription(point, route, day.title),
-            image: pointImages[0] || routeImages[0],
-            images: pointImages.length > 0 ? pointImages : routeImages,
-            likes: placeLikes,
-            pointsCount: 1,
-            previewPoints: [route.title, day.title],
-            route,
-            pointTitle: title,
-            pointTime: point.time,
-            pointIndex: currentPointIndex,
-            dayTitle: day.title,
-            sourceRouteTitle: route.title,
-            createdAt: new Date(
-              Date.now() - (routeIndex * 10 + meaningfulIndex + 1) * 1000 * 60 * 60 * 2
-            ).toISOString(),
-          })
-
-          const momentImages = uniqueStrings([
-            ...cachedPointImages,
-            ...(Array.isArray(point.images) ? point.images : []),
-            ...routeImages,
-          ])
-
-          const momentId = `moment_post_${route.id}_${dayIndex}_${pointIndex}`
-          const momentLikes =
-            likesMap[momentId] ??
-            Math.max(2, Math.round(baseLikes / 14) + meaningfulIndex + 1)
-
-          mixedPosts.push({
-            id: momentId,
-            type: 'moment',
-            routeId: route.id,
-            city: route.city,
-            cityFolder,
-            title: point.time ? `${point.time} · ${title}` : title,
-            description: buildMomentDescription(point, route, day.title),
-            image: momentImages[0] || routeImages[0],
-            images: momentImages.length > 0 ? momentImages : routeImages,
-            likes: momentLikes,
-            previewPoints: [route.title, day.title],
-            route,
-            pointTitle: title,
-            pointTime: point.time,
-            pointIndex: currentPointIndex,
-            dayTitle: day.title,
-            sourceRouteTitle: route.title,
-            createdAt: new Date(
-              Date.now() - (routeIndex * 10 + meaningfulIndex + 1) * 1000 * 60 * 45
-            ).toISOString(),
-          })
-
-          meaningfulIndex += 1
+  const totalPlacesCount = visiblePlaces.length
+  const totalRoutesCount = routes.length
+  const totalUniquePoints = useMemo(() => {
+    const set = new Set<string>()
+    routes.forEach(route => {
+      route.days.forEach(day => {
+        day.points.forEach(point => {
+          if (point.title?.trim()) set.add(point.title.trim().toLowerCase())
         })
       })
     })
+    return set.size
+  }, [routes])
 
-    return mixedPosts.sort((a, b) => {
-      const aScore = (a.route.popularity ?? 0) + a.likes
-      const bScore = (b.route.popularity ?? 0) + b.likes
-      return bScore - aScore
-    })
-  }, [likesMap, imageCache, pointImageCache])
-
-  const visiblePosts = useMemo(() => {
-    return posts.filter(post => {
-      const hasGoodImage = post.images.some(img => !failedImages[img])
-      return hasGoodImage
-    })
-  }, [posts, failedImages])
-
-  const getSafeImages = (post: FeedPost): string[] => {
-    const safe = post.images.filter(Boolean).filter(img => !failedImages[img])
-    if (safe.length > 0) return safe
-
-    if (post.image && !failedImages[post.image]) return [post.image]
-
-    return [getCityCoverUrl(post.cityFolder)]
+  const openZoomImage = (src: string, title: string) => {
+    setZoomedImage(src)
+    setZoomedImageTitle(title)
   }
 
-  const getDisplayedPostImage = (post: FeedPost): string => {
-    const safeImages = getSafeImages(post)
-    const index = imageIndexes[post.id] ?? 0
-    return safeImages[index % safeImages.length]
+  const closeZoomImage = () => {
+    setZoomedImage(null)
+    setZoomedImageTitle('')
   }
 
-  const mergePostImages = (post: FeedPost, extraImages: string[]): FeedPost => {
-    const merged = uniqueStrings([...extraImages, ...post.images])
-    return {
-      ...post,
-      images: merged,
-      image: merged[0] || post.image,
-    }
-  }
+  const fetchPhotosFromBackend = async (
+    params: URLSearchParams
+  ): Promise<string[]> => {
+    const urlsToTry = [
+      `${API_BASE}/api/photos?${params.toString()}`,
+      `${API_BASE}/photos?${params.toString()}`
+    ]
 
-  const toggleLike = (postId: string) => {
-    const isLiked = likedIds.includes(postId)
-    const nextLikedIds = isLiked
-      ? likedIds.filter(id => id !== postId)
-      : [...likedIds, postId]
+    for (const url of urlsToTry) {
+      try {
+        const resp = await fetch(url)
+        if (!resp.ok) continue
 
-    const currentLikes = likesMap[postId] ?? posts.find(p => p.id === postId)?.likes ?? 0
-    const nextLikes = isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1
-    const nextLikesMap = {
-      ...likesMap,
-      [postId]: nextLikes,
+        const data = await resp.json()
+        const remotePhotos = extractPhotosFromApi(data)
+
+        if (remotePhotos.length > 0) {
+          return remotePhotos
+        }
+      } catch (e) {
+        console.error('photos api error', url, e)
+      }
     }
 
-    setLikedIds(nextLikedIds)
-    setLikesMap(nextLikesMap)
-    writeLikedPostIds(nextLikedIds)
-    writeLikesMap(nextLikesMap)
+    return []
   }
 
-  const toggleSave = (postId: string) => {
-    const isSaved = savedIds.includes(postId)
-    const nextSavedIds = isSaved
-      ? savedIds.filter(id => id !== postId)
-      : [...savedIds, postId]
+  const openPointModal = async (
+    route: PopularRoute,
+    dayTitle: string,
+    dayIndex: number,
+    point: {
+      title: string
+      time?: string
+      description?: string
+      images?: string[]
+    },
+    pointIndex: number
+  ) => {
+    const placeCacheKey = buildPlaceCacheKey(route.city || cityTitle, point.title)
 
-    setSavedIds(nextSavedIds)
-    writeSavedPostIds(nextSavedIds)
-  }
+    setActiveRoute(route)
+    setActivePoint({
+      routeId: route.id,
+      dayTitle,
+      dayIndex,
+      pointIndex,
+      point
+    })
+    setActiveImageIndex(0)
+    setIsPointImagesLoading(true)
+    setFailedPointImages({})
 
-  const handleSaveTrip = (post: FeedPost) => {
-    const currentImage = getDisplayedPostImage(post)
-    saveRouteToMyTrips(post.route, currentImage)
-    toggleSave(post.id)
-    setSaveToast('Маршрут сохранён в «Мои поездки»')
-  }
+    const baseImages = Array.isArray(point.images) ? point.images : []
+    const cached = pointPhotosCache[placeCacheKey] ?? []
 
-  const hydratePostImages = async (post: FeedPost) => {
-    if (loadingImages[post.id]) return
+    const buildImages = (extra: string[] = []) => {
+      const all = [...baseImages, ...extra]
+      return Array.from(new Set(all.filter(Boolean)))
+    }
 
-    setLoadingImages(prev => ({ ...prev, [post.id]: true }))
+    if (cached.length > 0) {
+      setPointImages(buildImages(cached))
+      setIsPointImagesLoading(false)
+    } else {
+      setPointImages(buildImages())
+      if (baseImages.length > 0) {
+        setIsPointImagesLoading(false)
+      }
+    }
+
+    setWikiInfo({
+      loading: true,
+      error: false,
+      extract: null,
+      url: null
+    })
+    setIsWikiVisible(true)
+
+    if (cached.length > 0) {
+      return
+    }
+
+    const params = new URLSearchParams({
+      city: route.city || cityTitle,
+      title: cleanupPlaceTitle(point.title || '')
+    })
 
     try {
-      if ((post.type === 'place' || post.type === 'moment') && typeof post.pointIndex === 'number') {
-        const pointCacheKey = getPointCacheKey(post.routeId, post.pointIndex)
-        const cachedPointImages = pointImageCache[pointCacheKey] ?? []
+      const remotePhotos = await fetchPhotosFromBackend(params)
 
-        if (cachedPointImages.length > 0) {
-          setActivePost(prev => {
-            if (!prev || prev.id !== post.id) return prev
-            return mergePostImages(prev, cachedPointImages)
-          })
-          return
-        }
+      if (remotePhotos.length > 0) {
+        setPointPhotosCache(prev => ({
+          ...prev,
+          [placeCacheKey]: remotePhotos
+        }))
 
-        const resolvedPointImages = await resolvePointImages(
-          post.route,
-          post.cityFolder,
-          post.pointTitle || post.title,
-          post.pointIndex
-        )
-
-        if (resolvedPointImages.length > 0) {
-          const nextPointCache = {
-            ...pointImageCache,
-            [pointCacheKey]: resolvedPointImages,
-          }
-
-          setPointImageCache(nextPointCache)
-          writePointImageCache(nextPointCache)
-
-          setActivePost(prev => {
-            if (!prev || prev.id !== post.id) return prev
-            return mergePostImages(prev, resolvedPointImages)
-          })
-          return
-        }
-      }
-
-      if (post.type === 'route') {
-        const routeHasOwnImage = hasOwnCoverImage(post.route)
-        const currentCached = imageCache[post.routeId]
-        const currentImage = currentCached || post.image
-        const currentIsCityCover = currentImage === getCityCoverUrl(post.cityFolder)
-
-        if (routeHasOwnImage && !currentIsCityCover) return
-        if (currentCached && !currentIsCityCover) return
-
-        const resolved = await resolveRouteImage(post.route, post.cityFolder)
-        if (!resolved) return
-
-        const next = {
-          ...imageCache,
-          [post.routeId]: resolved,
-        }
-
-        setImageCache(next)
-        writeImageCache(next)
-
-        setActivePost(prev => {
-          if (!prev || prev.id !== post.id) return prev
-          return mergePostImages(prev, [resolved])
+        setPointImages(prev => {
+          const all = [...prev, ...remotePhotos]
+          return Array.from(new Set(all.filter(Boolean)))
         })
+        setIsPointImagesLoading(false)
       }
-    } finally {
-      setLoadingImages(prev => ({ ...prev, [post.id]: false }))
+    } catch (e) {
+      console.error('backend point photos load error', e)
+    }
+
+    loadCloudPointImages(cityFolder, point.title)
+      .then(cloudPhotos => {
+        if (!cloudPhotos || cloudPhotos.length === 0) {
+          if (baseImages.length === 0) {
+            setIsPointImagesLoading(false)
+          }
+          return
+        }
+
+        setPointPhotosCache(prev => {
+          const prevCached = prev[placeCacheKey] ?? []
+          const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
+          return {
+            ...prev,
+            [placeCacheKey]: merged
+          }
+        })
+
+        setPointImages(prev => {
+          const all = [...prev, ...cloudPhotos]
+          return Array.from(new Set(all.filter(Boolean)))
+        })
+        setIsPointImagesLoading(false)
+      })
+      .catch(err => {
+        console.error('cloud photos load error', err)
+        setIsPointImagesLoading(false)
+      })
+  }
+
+  const handleCreateCustomRoute = () => {
+    if (!webApp) return
+
+    const payload = {
+      type: 'start_custom_route',
+      city: cityTitle
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert(
+        'Мы отправим данные в ProGid, когда вы будете использовать мини-приложение внутри Telegram.'
+      )
     }
   }
 
-  // Фоновая гидрация картинок для place/moment, чтобы стрелки и фото были сразу в ленте.
-  useEffect(() => {
-    let cancelled = false
+  const handleAiRoute = () => {
+    if (!webApp) return
 
-    const run = async () => {
-      const candidates = visiblePosts
-        .filter(
-          post =>
-            (post.type === 'place' || post.type === 'moment') &&
-            typeof post.pointIndex === 'number'
-        )
-        .slice(0, 18)
-
-      for (const post of candidates) {
-        if (cancelled) return
-        if (typeof post.pointIndex !== 'number') continue
-
-        const pointCacheKey = getPointCacheKey(post.routeId, post.pointIndex)
-        const cached = pointImageCache[pointCacheKey] ?? []
-        const pointOwnImages = post.images.filter(img => !img.includes('/city-cover.jpg'))
-
-        if (cached.length > 0 || pointOwnImages.length > 1) continue
-
-        try {
-          const resolved = await resolvePointImages(
-            post.route,
-            post.cityFolder,
-            post.pointTitle || post.title,
-            post.pointIndex
-          )
-
-          if (cancelled || resolved.length === 0) continue
-
-          const next = {
-            ...pointImageCache,
-            [pointCacheKey]: resolved,
-          }
-
-          setPointImageCache(next)
-          writePointImageCache(next)
-        } catch {
-          // ignore
-        }
-      }
+    const payload = {
+      type: 'ai_route',
+      city: cityTitle
     }
 
-    run()
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert('Функция доступна внутри Telegram-мини-приложения.')
+    }
+  }
+
+  const handleAddPlacePhoto = () => {
+    if (!webApp || !activeRoute || !activePoint) return
+
+    const payload = {
+      type: 'add_place_photo',
+      routeId: activeRoute.id,
+      routeTitle: activeRoute.title,
+      city: activeRoute.city,
+      dayTitle: activePoint.dayTitle,
+      dayIndex: activePoint.dayIndex,
+      pointIndex: activePoint.pointIndex,
+      pointTitle: activePoint.point.title,
+      pointTime: activePoint.point.time ?? null
+    }
+
+    const data = JSON.stringify(payload)
+
+    if (webApp?.sendData) {
+      webApp.sendData(data)
+    } else {
+      alert(
+        'Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.'
+      )
+    }
+  }
+
+  const handleRemovePoint = (dayIndex: number, pointIndex: number) => {
+    setHiddenPoints(prev => {
+      const prevArr = prev[dayIndex] ?? []
+      if (prevArr.includes(pointIndex)) return prev
+      return {
+        ...prev,
+        [dayIndex]: [...prevArr, pointIndex]
+      }
+    })
+  }
+
+  const handleRemoveExtraPoint = (dayIndex: number, extraIndex: number) => {
+    setExtraPoints(prev => {
+      const dayExtras = prev[dayIndex] ?? []
+      const newExtras = dayExtras.filter((_, idx) => idx !== extraIndex)
+      const next: Record<number, RoutePoint[]> = { ...prev }
+      if (newExtras.length === 0) {
+        delete next[dayIndex]
+      } else {
+        next[dayIndex] = newExtras
+      }
+      return next
+    })
+  }
+
+  const handleAddPlaceToRoute = (place: PlaceItem) => {
+    if (!activeRoute) return
+    const dayIndex = activeRoute.days.length - 1
+
+    const newPoint: RoutePoint = {
+      title: place.point.title,
+      description: place.point.description,
+      time: place.point.time,
+      images: place.point.images
+    }
+
+    setExtraPoints(prev => {
+      const dayExtras = prev[dayIndex] ?? []
+      return {
+        ...prev,
+        [dayIndex]: [...dayExtras, newPoint]
+      }
+    })
+
+    setIsAddPlaceOpen(false)
+  }
+
+  const showPrevImage = () => {
+    if (visiblePointImages.length === 0) return
+    setActiveImageIndex(prev => {
+      const len = visiblePointImages.length
+      return (prev - 1 + len) % len
+    })
+  }
+
+  const showNextImage = () => {
+    if (visiblePointImages.length === 0) return
+    setActiveImageIndex(prev => {
+      const len = visiblePointImages.length
+      return (prev + 1) % len
+    })
+  }
+
+  const showPrevMainImage = (imagesCount: number) => {
+    if (imagesCount === 0) return
+    setMainImageIndex(prev => (prev - 1 + imagesCount) % imagesCount)
+  }
+
+  const showNextMainImage = (imagesCount: number) => {
+    if (imagesCount === 0) return
+    setMainImageIndex(prev => (prev + 1) % imagesCount)
+  }
+
+  useEffect(() => {
+    if (!activePoint || !activeRoute) {
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: null,
+        url: null
+      })
+      setIsWikiVisible(false)
+      return
+    }
+
+    const titleForWiki = activePoint.point.title || ''
+    const descriptionForWiki = activePoint.point.description || ''
+
+    if (!titleForWiki.trim()) {
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: null,
+        url: null
+      })
+      setIsWikiVisible(false)
+      return
+    }
+
+    setWikiInfo({
+      loading: true,
+      error: false,
+      extract: null,
+      url: null
+    })
+    setIsWikiVisible(true)
+
+    let isCancelled = false
+
+    const loadWiki = async () => {
+      const data = await fetchWikiExtract(
+        titleForWiki,
+        activeRoute.city || cityTitle,
+        descriptionForWiki
+      )
+
+      if (isCancelled) return
+
+      if (!data) {
+        setWikiInfo({
+          loading: false,
+          error: true,
+          extract: null,
+          url: null
+        })
+        return
+      }
+
+      setWikiInfo({
+        loading: false,
+        error: false,
+        extract: data.extract,
+        url: data.url
+      })
+    }
+
+    loadWiki()
 
     return () => {
-      cancelled = true
+      isCancelled = true
     }
-  }, [visiblePosts, pointImageCache])
+  }, [activePoint, activeRoute, cityTitle])
 
-  const showPrevImage = (e: React.MouseEvent, post: FeedPost) => {
-    e.stopPropagation()
-    const safeImages = getSafeImages(post)
-    if (safeImages.length <= 1) return
+  const handleSelectRoute = (route: PopularRoute) => {
+    setActiveRoute(route)
+    setMainImageIndex(0)
+    setHiddenPoints({})
+    setExtraPoints({})
+    setIsAddPlaceOpen(false)
+    setFailedRouteImages({})
 
-    setImageIndexes(prev => {
-      const current = prev[post.id] ?? 0
-      return {
-        ...prev,
-        [post.id]: (current - 1 + safeImages.length) % safeImages.length,
-      }
-    })
-  }
-
-  const showNextImage = (e: React.MouseEvent, post: FeedPost) => {
-    e.stopPropagation()
-    const safeImages = getSafeImages(post)
-    if (safeImages.length <= 1) return
-
-    setImageIndexes(prev => {
-      const current = prev[post.id] ?? 0
-      return {
-        ...prev,
-        [post.id]: (current + 1) % safeImages.length,
-      }
-    })
-  }
-
-  const handleOpenPost = async (post: FeedPost) => {
-    setIsAddMenuOpen(false)
-    const withCurrentImage = {
-      ...post,
-      image: getDisplayedPostImage(post),
+    const localImages: string[] = []
+    if ((route as any).coverImage) {
+      localImages.push((route as any).coverImage as string)
     }
-    setActivePost(withCurrentImage)
-    await hydratePostImages(withCurrentImage)
+    if (Array.isArray((route as any).images) && (route as any).images.length > 0) {
+      localImages.push(...((route as any).images as string[]))
+    }
+
+    const uniqLocal = Array.from(new Set(localImages))
+    const routeImagesWithCover =
+      uniqLocal.length === 0 && cityCoverUrl ? [cityCoverUrl] : uniqLocal
+
+    setRouteImages(routeImagesWithCover)
+
+    if (routeImagesWithCover.length > 0) {
+      setMainImageIndex(0)
+    }
   }
+
+  useEffect(() => {
+    if (!initialRouteId) return
+    if (activeRoute?.id === initialRouteId) return
+
+    const found = routes.find(route => route.id === initialRouteId)
+    if (!found) return
+
+    handleSelectRoute(found)
+  }, [initialRouteId, activeRoute, routes])
+
+  const hasRouteInfo =
+    typeof activeRoute?.daysCount !== 'undefined' ||
+    typeof activeRoute?.distanceKm !== 'undefined' ||
+    typeof (activeRoute as any)?.estimatedBudget !== 'undefined' ||
+    typeof (activeRoute as any)?.season !== 'undefined'
+
+  const handleClosePointModal = () => {
+    setActivePoint(null)
+    setPointImages([])
+    setFailedPointImages({})
+    setActiveImageIndex(0)
+    setIsPointImagesLoading(false)
+    setWikiInfo({
+      loading: false,
+      error: false,
+      extract: null,
+      url: null
+    })
+    setIsWikiVisible(false)
+  }
+
+  const handleSendToMyTrips = () => {
+    if (!activeRoute) return
+
+    const now = new Date().toISOString()
+
+    const savedTrip: SavedTrip = {
+      id: `${activeRoute.id}_${cityTitle}`,
+      city: cityTitle,
+      routeId: activeRoute.id,
+      title: activeRoute.title,
+      shortDescription: activeRoute.shortDescription,
+      daysCount: activeRoute.daysCount,
+      difficulty: activeRoute.difficulty,
+      distanceKm: activeRoute.distanceKm,
+      estimatedBudget: (activeRoute as any).estimatedBudget,
+      season: (activeRoute as any).season,
+      coverImage:
+        visibleRouteImages[0] ||
+        ((activeRoute as any).coverImage as string | undefined) ||
+        cityCoverUrl,
+      hiddenPoints,
+      extraPoints,
+      routeSnapshot: activeRoute,
+      createdAt: now,
+      updatedAt: now
+    }
+
+    saveTripToLocalStorage(savedTrip)
+
+    const payload = {
+      type: 'save_route_to_trips',
+      city: cityTitle,
+      routeId: activeRoute.id,
+      title: activeRoute.title,
+      hiddenPoints,
+      extraPoints,
+      savedAt: now
+    }
+
+    if (webApp?.sendData) {
+      webApp.sendData(JSON.stringify(payload))
+    }
+
+    setSaveMessage('Маршрут сохранён в «Мои поездки»')
+  }
+
+  const activeRoutePointsCount = activeRoute ? countRoutePoints(activeRoute) : 0
+  const activeRoutePreview = activeRoute ? buildRoutePreview(activeRoute) : []
 
   return (
-    <div className="feed-page">
-      {saveToast && <div className="feed-toast">{saveToast}</div>}
+    <div className="popular-routes-page">
+      {saveMessage && <div className="pr-save-toast">{saveMessage}</div>}
 
-      <div className="feed-compose-card">
-        <div className="feed-compose-left">
-          <div className="feed-compose-avatar">🧭</div>
+      <div className="pr-header">
+        <button className="pr-back-btn" type="button" onClick={onBack}>
+          ← Назад
+        </button>
 
-          <div className="feed-compose-menu-wrap">
-            <button
-              type="button"
-              className="feed-compose-main-btn"
-              onClick={() => setIsAddMenuOpen(prev => !prev)}
-            >
-              + Добавить
-            </button>
+        <div className="pr-header-main">
+          <h2>Маршруты по городу</h2>
+          <div className="pr-header-city">{cityTitle}</div>
+          <div className="pr-header-stats">
+            <span>{totalRoutesCount} маршрутов</span>
+            <span>{totalUniquePoints} мест</span>
+            <span>{maxDaysAvailable} макс. дней</span>
+          </div>
+        </div>
+      </div>
 
-            {isAddMenuOpen && (
-              <div className="feed-add-menu">
-                <button
-                  type="button"
-                  className="feed-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false)
-                    onCreateRoute?.()
-                  }}
-                >
-                  <div className="feed-add-menu-title">Маршрут</div>
-                  <div className="feed-add-menu-subtitle">
-                    Полноценный маршрут по дням и точкам
+      <div className="pr-actions-row">
+        <button
+          type="button"
+          className="pr-create-route-btn"
+          onClick={handleCreateCustomRoute}
+        >
+          Создать свой маршрут
+        </button>
+
+        <button
+          type="button"
+          className={`pr-ai-route-btn ${viewMode === 'ai' ? 'active' : ''}`}
+          onClick={() => {
+            setViewMode('ai')
+            setActiveRoute(null)
+          }}
+        >
+          Маршрут от ИИ
+        </button>
+
+        <button
+          type="button"
+          className={viewMode === 'places' ? 'pr-all-routes-btn active' : 'pr-all-routes-btn'}
+          onClick={() => {
+            setViewMode('places')
+            setActiveRoute(null)
+          }}
+        >
+          Достопримечательности
+        </button>
+
+        <button
+          type="button"
+          className={viewMode === 'routes' ? 'pr-all-routes-btn active' : 'pr-all-routes-btn'}
+          onClick={() => {
+            setViewMode('routes')
+            setActiveRoute(null)
+          }}
+        >
+          Все маршруты
+        </button>
+      </div>
+
+      {viewMode === 'places' && (
+        <div className="places-section">
+          <div className="section-title">Достопримечательности города и области</div>
+          <div className="section-subtitle">
+            Выбирай место, смотри фотографии, описание и добавляй его в свой маршрут.
+          </div>
+
+          <div className="pr-top-summary">
+            <div className="pr-summary-card">
+              <div className="pr-summary-label">Доступно мест</div>
+              <div className="pr-summary-value">{totalPlacesCount}</div>
+            </div>
+            <div className="pr-summary-card">
+              <div className="pr-summary-label">Маршрутов в базе</div>
+              <div className="pr-summary-value">{totalRoutesCount}</div>
+            </div>
+            <div className="pr-summary-card">
+              <div className="pr-summary-label">Город</div>
+              <div className="pr-summary-value">{cityTitle}</div>
+            </div>
+          </div>
+
+          <div className="pr-places-toolbar">
+            <input
+              type="text"
+              className="pr-places-search"
+              placeholder="Поиск по месту, маршруту или дню…"
+              value={placesQuery}
+              onChange={e => setPlacesQuery(e.target.value)}
+            />
+
+            <label className="pr-places-toggle">
+              <input
+                type="checkbox"
+                checked={showOnlyMeaningfulPlaces}
+                onChange={e => setShowOnlyMeaningfulPlaces(e.target.checked)}
+              />
+              <span>Скрыть служебные точки</span>
+            </label>
+          </div>
+
+          <div className="routes-list">
+            {visiblePlaces.map(place => (
+              <button
+                key={place.id}
+                type="button"
+                className="route-card route-card-place"
+                onClick={() =>
+                  openPointModal(
+                    place.route,
+                    place.dayTitle,
+                    place.dayIndex,
+                    place.point,
+                    place.pointIndex
+                  )
+                }
+              >
+                <div className="route-card-header">
+                  <div className="route-card-title">{place.point.title}</div>
+                  <div className="route-days">
+                    {place.route.title} · {place.dayTitle}
                   </div>
-                </button>
+                </div>
 
-                <button
-                  type="button"
-                  className="feed-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false)
-                    onCreatePlace?.()
-                  }}
-                >
-                  <div className="feed-add-menu-title">Достопримечательность</div>
-                  <div className="feed-add-menu-subtitle">
-                    Одно место с фото, описанием и адресом
-                  </div>
-                </button>
+                <div className="route-card-badges">
+                  <span className="route-card-badge">{place.route.city}</span>
+                  {place.point.time && (
+                    <span className="route-card-badge route-card-badge-muted">
+                      {place.point.time}
+                    </span>
+                  )}
+                </div>
 
-                <button
-                  type="button"
-                  className="feed-add-menu-item"
-                  onClick={() => {
-                    setIsAddMenuOpen(false)
-                    onCreateMoment?.()
-                  }}
-                >
-                  <div className="feed-add-menu-title">Момент</div>
-                  <div className="feed-add-menu-subtitle">
-                    Фото, координаты или адрес, короткое описание как пост
-                  </div>
-                </button>
+                {place.point.description && (
+                  <div className="route-desc">{place.point.description}</div>
+                )}
+              </button>
+            ))}
+
+            {visiblePlaces.length === 0 && (
+              <div className="places-empty">
+                По этому запросу ничего не найдено. Попробуй убрать фильтр или изменить поиск.
               </div>
             )}
           </div>
         </div>
+      )}
 
-        <div className="feed-compose-actions">
-          <button
-            type="button"
-            className="feed-compose-icon-btn"
-            title="Добавить"
-            onClick={() => setIsAddMenuOpen(prev => !prev)}
-          >
-            ＋
-          </button>
+      {viewMode === 'ai' && (
+        <div className="places-section">
+          <div className="section-title">Маршрут от ИИ</div>
+          <div className="section-subtitle">
+            Скажи, сколько у тебя дней, какой темп прогулки, что интересует больше —
+            архитектура, еда, море, музеи или необычные места — и ИИ соберёт маршрут под тебя.
+          </div>
 
-          <button
-            type="button"
-            className="feed-compose-icon-btn"
-            title="Открыть маршруты"
-            onClick={() => onOpenRoutes('Калининград')}
-          >
-            ☰
-          </button>
+          <div className="pr-top-summary">
+            <div className="pr-summary-card">
+              <div className="pr-summary-label">Город</div>
+              <div className="pr-summary-value">{cityTitle}</div>
+            </div>
+            <div className="pr-summary-card">
+              <div className="pr-summary-label">Формат</div>
+              <div className="pr-summary-value">Персональный план</div>
+            </div>
+            <div className="pr-summary-card">
+              <div className="pr-summary-label">Подходит для</div>
+              <div className="pr-summary-value">1–7 дней</div>
+            </div>
+          </div>
+
+          <div className="pr-ai-box">
+            <div className="pr-ai-list">
+              <div className="pr-ai-list-item">Подберём точки под твой темп</div>
+              <div className="pr-ai-list-item">Учтём детей, авто, пеший формат</div>
+              <div className="pr-ai-list-item">Соберём удобную последовательность мест</div>
+              <div className="pr-ai-list-item">Сразу отправим в Telegram</div>
+            </div>
+
+            <button type="button" className="pr-create-route-btn" onClick={handleAiRoute}>
+              Подобрать маршрут
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="feed-header">
-        <h2>Лента</h2>
-        <div className="feed-subtitle">
-          Маршруты, достопримечательности и моменты в формате social travel feed
-        </div>
-      </div>
-
-      <div className="feed-list">
-        {visiblePosts.map(post => {
-          const isLiked = likedIds.includes(post.id)
-          const isSaved = savedIds.includes(post.id)
-          const isImageLoading = loadingImages[post.id]
-          const safeImages = getSafeImages(post)
-          const currentImage = getDisplayedPostImage(post)
-          const currentIndex = imageIndexes[post.id] ?? 0
-
-          return (
-            <button
-              key={post.id}
-              type="button"
-              className="feed-card"
-              onClick={() => handleOpenPost(post)}
-            >
-              <div className="feed-image-wrap">
-                <img
-                  src={currentImage}
-                  alt={post.title}
-                  className="feed-image"
-                  onError={() => {
-                    setFailedImages(prev => ({ ...prev, [currentImage]: true }))
-                  }}
-                />
-
-                <div className="feed-image-overlay">
-                  <span className="feed-image-chip">{feedTypeLabel(post.type)}</span>
-                  <span className="feed-image-chip">{post.city}</span>
-                </div>
-
-                {safeImages.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      className="feed-carousel-btn left"
-                      onClick={e => showPrevImage(e, post)}
-                    >
-                      ‹
-                    </button>
-
-                    <button
-                      type="button"
-                      className="feed-carousel-btn right"
-                      onClick={e => showNextImage(e, post)}
-                    >
-                      ›
-                    </button>
-
-                    <div className="feed-carousel-counter">
-                      {currentIndex + 1} / {safeImages.length}
-                    </div>
-                  </>
-                )}
-
-                {isImageLoading && (
-                  <div className="feed-image-loader">Подбираем фото…</div>
-                )}
+      {viewMode === 'routes' && (
+        <div className="routes-tab">
+          {!activeRoute && (
+            <>
+              <div className="section-title">Готовые маршруты</div>
+              <div className="section-subtitle">
+                Выбери сложность, длительность и открой готовый сценарий поездки.
               </div>
 
-              <div className="feed-content">
-                <div className="feed-title">{post.title}</div>
-                <div className="feed-description">{post.description}</div>
+              <div className="pr-top-summary">
+                <div className="pr-summary-card">
+                  <div className="pr-summary-label">Всего маршрутов</div>
+                  <div className="pr-summary-value">{visibleRoutes.length}</div>
+                </div>
+                <div className="pr-summary-card">
+                  <div className="pr-summary-label">Уникальных мест</div>
+                  <div className="pr-summary-value">{totalUniquePoints}</div>
+                </div>
+                <div className="pr-summary-card">
+                  <div className="pr-summary-label">Диапазон</div>
+                  <div className="pr-summary-value">1–{maxDaysAvailable} дней</div>
+                </div>
+              </div>
 
-                <div className="feed-meta-line">
-                  {post.type === 'route' && typeof post.daysCount !== 'undefined' && (
-                    <>
-                      <span>
-                        {post.daysCount} {declension('день', 'дня', 'дней', post.daysCount)}
-                      </span>
-                      <span>•</span>
-                    </>
-                  )}
-
-                  {post.type === 'route' && typeof post.pointsCount !== 'undefined' && (
-                    <>
-                      <span>{post.pointsCount} точек</span>
-                      <span>•</span>
-                    </>
-                  )}
-
-                  {post.type === 'route' && (
-                    <>
-                      <span>{routeDifficultyLabel(post.difficulty)}</span>
-                      {typeof post.distanceKm !== 'undefined' && (
-                        <>
-                          <span>•</span>
-                          <span>~{post.distanceKm} км</span>
-                        </>
-                      )}
-                    </>
-                  )}
-
-                  {post.type !== 'route' && post.sourceRouteTitle && (
-                    <span>Из маршрута: {post.sourceRouteTitle}</span>
-                  )}
-
-                  {post.type === 'moment' && post.pointTime && (
-                    <>
-                      <span>•</span>
-                      <span>{post.pointTime}</span>
-                    </>
-                  )}
+              <div className="pr-filters">
+                <div className="pr-filter-section">
+                  <span className="pr-filter-label">Сложность:</span>
+                  <div className="pr-segmented">
+                    <button
+                      type="button"
+                      className={
+                        difficultyFilter === 'all'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setDifficultyFilter('all')}
+                    >
+                      Любая
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        difficultyFilter === 'easy'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setDifficultyFilter('easy')}
+                    >
+                      Лёгкие
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        difficultyFilter === 'medium'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setDifficultyFilter('medium')}
+                    >
+                      Средние
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        difficultyFilter === 'hard'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setDifficultyFilter('hard')}
+                    >
+                      Сложные
+                    </button>
+                  </div>
                 </div>
 
-                {post.previewPoints.length > 0 && (
-                  <div className="feed-preview-points">
-                    {post.previewPoints.map(point => (
-                      <span key={point} className="feed-preview-point">
-                        {point}
+                <div className="pr-filter-section">
+                  <span className="pr-filter-label">Максимум дней:</span>
+                  <div className="pr-range-row">
+                    <input
+                      type="range"
+                      min={1}
+                      max={maxDaysAvailable}
+                      step={1}
+                      value={maxDaysFilter}
+                      onChange={e => setMaxDaysFilter(Number(e.target.value))}
+                    />
+                    <span className="pr-range-value">
+                      до {maxDaysFilter} {declension('дня', 'дней', 'дней', maxDaysFilter)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pr-filter-section">
+                  <span className="pr-filter-label">Сортировать по:</span>
+                  <div className="pr-segmented">
+                    <button
+                      type="button"
+                      className={
+                        sortMode === 'popularity'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setSortMode('popularity')}
+                    >
+                      Популярности
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        sortMode === 'days'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setSortMode('days')}
+                    >
+                      Количеству дней
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        sortMode === 'difficulty'
+                          ? 'pr-segmented-btn active'
+                          : 'pr-segmented-btn'
+                      }
+                      onClick={() => setSortMode('difficulty')}
+                    >
+                      Сложности
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="routes-list-bottom">
+                {visibleRoutes.map(route => {
+                  const previewPoints = buildRoutePreview(route)
+                  const totalPoints = countRoutePoints(route)
+
+                  return (
+                    <button
+                      type="button"
+                      key={route.id}
+                      className="route-card route-card-rich"
+                      onClick={() => handleSelectRoute(route)}
+                    >
+                      <div className="route-card-header">
+                        <div className="route-card-title">{route.title}</div>
+                        <div className="route-days">
+                          {route.daysCount} {declension('день', 'дня', 'дней', route.daysCount)}
+                        </div>
+                      </div>
+
+                      <div className="route-card-badges">
+                        <span
+                          className={`route-card-badge route-card-badge-difficulty ${routeDifficultyClass(
+                            route.difficulty
+                          )}`}
+                        >
+                          {routeDifficultyLabel(route.difficulty)}
+                        </span>
+
+                        {typeof route.distanceKm !== 'undefined' && (
+                          <span className="route-card-badge">~{route.distanceKm} км</span>
+                        )}
+
+                        <span className="route-card-badge">{totalPoints} точек</span>
+
+                        {(route as any).season && (
+                          <span className="route-card-badge route-card-badge-muted">
+                            {(route as any).season}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="route-desc">{route.shortDescription}</div>
+
+                      {previewPoints.length > 0 && (
+                        <div className="route-preview-points">
+                          {previewPoints.map(pointTitle => (
+                            <span key={pointTitle} className="route-preview-point">
+                              {pointTitle}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          {activeRoute && (
+            <div className="route-detail-page">
+              <button
+                type="button"
+                className="pr-back-btn"
+                onClick={() => setActiveRoute(null)}
+              >
+                ← Назад к маршрутам
+              </button>
+
+              <div className="route-detail-card">
+                <div className="route-detail-header">
+                  <h3>{activeRoute.title}</h3>
+                  <div className="route-detail-subtitle">
+                    {activeRoute.daysCount}{' '}
+                    {declension('день', 'дня', 'дней', activeRoute.daysCount)}
+                  </div>
+                </div>
+
+                {visibleRouteImages.length > 0 && (
+                  <div className="route-main-carousel">
+                    <div className="route-main-carousel-inner">
+                      {visibleRouteImages.length > 1 && (
+                        <button
+                          type="button"
+                          className="route-main-carousel-btn left"
+                          onClick={() => showPrevMainImage(visibleRouteImages.length)}
+                        >
+                          ◀
+                        </button>
+                      )}
+
+                      <img
+                        src={visibleRouteImages[mainImageIndex % visibleRouteImages.length]}
+                        alt={activeRoute.title}
+                        className="route-main-carousel-image"
+                        onClick={() =>
+                          openZoomImage(
+                            visibleRouteImages[mainImageIndex % visibleRouteImages.length],
+                            activeRoute.title
+                          )
+                        }
+                        onError={() => {
+                          const broken =
+                            visibleRouteImages[mainImageIndex % visibleRouteImages.length]
+                          setFailedRouteImages(prev => ({ ...prev, [broken]: true }))
+                        }}
+                      />
+
+                      {visibleRouteImages.length > 1 && (
+                        <button
+                          type="button"
+                          className="route-main-carousel-btn right"
+                          onClick={() => showNextMainImage(visibleRouteImages.length)}
+                        >
+                          ▶
+                        </button>
+                      )}
+                    </div>
+
+                    {visibleRouteImages.length > 1 && (
+                      <div className="route-main-carousel-dots">
+                        {visibleRouteImages.map((img, idx) => (
+                          <button
+                            key={`${img}-${idx}`}
+                            type="button"
+                            className={
+                              idx === mainImageIndex
+                                ? 'route-main-carousel-dot active'
+                                : 'route-main-carousel-dot'
+                            }
+                            onClick={() => setMainImageIndex(idx)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="route-detail-overview">
+                  <div className="route-overview-card">
+                    <div className="route-overview-label">Дней</div>
+                    <div className="route-overview-value">{activeRoute.daysCount}</div>
+                  </div>
+
+                  <div className="route-overview-card">
+                    <div className="route-overview-label">Точек</div>
+                    <div className="route-overview-value">{activeRoutePointsCount}</div>
+                  </div>
+
+                  {typeof activeRoute.distanceKm !== 'undefined' && (
+                    <div className="route-overview-card">
+                      <div className="route-overview-label">Протяжённость</div>
+                      <div className="route-overview-value">~{activeRoute.distanceKm} км</div>
+                    </div>
+                  )}
+
+                  {typeof (activeRoute as any).estimatedBudget !== 'undefined' && (
+                    <div className="route-overview-card">
+                      <div className="route-overview-label">Бюджет</div>
+                      <div className="route-overview-value">
+                        от {(activeRoute as any).estimatedBudget} ₽
+                      </div>
+                    </div>
+                  )}
+
+                  {(activeRoute as any).season && (
+                    <div className="route-overview-card">
+                      <div className="route-overview-label">Сезон</div>
+                      <div className="route-overview-value">{(activeRoute as any).season}</div>
+                    </div>
+                  )}
+
+                  <div className="route-overview-card">
+                    <div className="route-overview-label">Сложность</div>
+                    <div className="route-overview-value">
+                      {routeDifficultyLabel(activeRoute.difficulty)}
+                    </div>
+                  </div>
+                </div>
+
+                {hasRouteInfo && (
+                  <div className="route-detail-meta">
+                    {typeof activeRoute.distanceKm !== 'undefined' && (
+                      <div>Протяжённость: ~{activeRoute.distanceKm} км</div>
+                    )}
+                    {typeof (activeRoute as any).estimatedBudget !== 'undefined' && (
+                      <div>
+                        Ориентировочный бюджет: от {(activeRoute as any).estimatedBudget} ₽
+                      </div>
+                    )}
+                    {(activeRoute as any).season && (
+                      <div>Лучшее время: {(activeRoute as any).season}</div>
+                    )}
+                  </div>
+                )}
+
+                {activeRoutePreview.length > 0 && (
+                  <div className="route-preview-points route-preview-points-detail">
+                    {activeRoutePreview.map(pointTitle => (
+                      <span key={pointTitle} className="route-preview-point">
+                        {pointTitle}
                       </span>
                     ))}
                   </div>
                 )}
 
-                <div className="feed-actions">
-                  <button
-                    type="button"
-                    className={isLiked ? 'feed-action-btn active' : 'feed-action-btn'}
-                    onClick={e => {
-                      e.stopPropagation()
-                      toggleLike(post.id)
-                    }}
-                  >
-                    ❤️ {likesMap[post.id] ?? post.likes}
-                  </button>
+                <div className="route-days-list">
+                  {activeRoute.days.map((day, dayIndex) => {
+                    const hiddenForDay = hiddenPoints[dayIndex] ?? []
+                    const dayExtra = extraPoints[dayIndex] ?? []
 
-                  <button
-                    type="button"
-                    className={isSaved ? 'feed-action-btn active' : 'feed-action-btn'}
-                    onClick={e => {
-                      e.stopPropagation()
-                      handleSaveTrip(post)
-                    }}
-                  >
-                    🔖 {isSaved ? 'Сохранено' : 'Сохранить'}
-                  </button>
+                    return (
+                      <div key={dayIndex} className="route-day-block">
+                        <div className="route-day-header">
+                          <div className="route-day-title">{day.title}</div>
+                          {day.description && (
+                            <div className="route-day-description">{day.description}</div>
+                          )}
+                        </div>
 
-                  <button
-                    type="button"
-                    className="feed-open-route-btn"
-                    onClick={e => {
-                      e.stopPropagation()
-                      onOpenRoutes(post.city, post.routeId)
-                    }}
-                  >
-                    Открыть
-                  </button>
+                        <ul className="route-points-list">
+                          {day.points.map((point, index) => {
+                            if (hiddenForDay.includes(index)) return null
+
+                            return (
+                              <li key={index} className="route-point-li">
+                                <button
+                                  type="button"
+                                  className="route-point-item"
+                                  onClick={() =>
+                                    openPointModal(activeRoute, day.title, dayIndex, point, index)
+                                  }
+                                >
+                                  {point.time && (
+                                    <span className="route-point-time">{point.time}</span>
+                                  )}
+
+                                  <div className="route-point-main">
+                                    <div className="route-point-title">{point.title}</div>
+                                    {point.description && (
+                                      <div className="route-point-description">
+                                        {point.description}
+                                      </div>
+                                    )}
+                                  </div>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="route-point-remove-btn"
+                                  onClick={() => handleRemovePoint(dayIndex, index)}
+                                >
+                                  ✕
+                                </button>
+                              </li>
+                            )
+                          })}
+
+                          {dayExtra.map((point, exIndex) => (
+                            <li
+                              key={`extra-${exIndex}`}
+                              className="route-point-li route-point-li-extra"
+                            >
+                              <button
+                                type="button"
+                                className="route-point-item"
+                                onClick={() =>
+                                  openPointModal(
+                                    activeRoute,
+                                    day.title,
+                                    dayIndex,
+                                    point,
+                                    -1 - exIndex
+                                  )
+                                }
+                              >
+                                {point.time && (
+                                  <span className="route-point-time">{point.time}</span>
+                                )}
+
+                                <div className="route-point-main">
+                                  <div className="route-point-title">{point.title}</div>
+                                  {point.description && (
+                                    <div className="route-point-description">
+                                      {point.description}
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="route-point-remove-btn"
+                                onClick={() => handleRemoveExtraPoint(dayIndex, exIndex)}
+                              >
+                                ✕
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })}
                 </div>
+
+                <div className="route-add-place-block">
+                  <button
+                    type="button"
+                    className="route-add-place-toggle"
+                    onClick={() => setIsAddPlaceOpen(prev => !prev)}
+                  >
+                    + Добавить место в маршрут
+                  </button>
+
+                  {isAddPlaceOpen && (
+                    <div className="route-add-place-list">
+                      {visiblePlaces.map(place => (
+                        <button
+                          key={`add-${place.id}`}
+                          type="button"
+                          className="route-add-place-item"
+                          onClick={() => handleAddPlaceToRoute(place)}
+                        >
+                          <div className="route-add-place-title">{place.point.title}</div>
+                          {place.point.description && (
+                            <div className="route-add-place-subtitle">
+                              {place.point.description}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+
+                      {visiblePlaces.length === 0 && (
+                        <div className="places-empty">Нет подходящих мест для добавления.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {getEmbedUrl(activeRoute) && (
+                  <div className="route-map-wrapper">
+                    <iframe
+                      src={getEmbedUrl(activeRoute)}
+                      title="Маршрут на карте"
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      allowFullScreen
+                      style={{
+                        width: '100%',
+                        minHeight: '300px',
+                        border: 0,
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        marginTop: '16px',
+                        marginBottom: '16px'
+                      }}
+                    />
+                  </div>
+                )}
+
+                {(activeRoute as any).yandexMapUrl && (
+                  <a
+                    href={(activeRoute as any).yandexMapUrl as string}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="pr-open-in-maps"
+                  >
+                    Открыть маршрут в Яндекс.Картах
+                  </a>
+                )}
+
+                <button
+                  type="button"
+                  className="route-send-to-trips-btn"
+                  onClick={handleSendToMyTrips}
+                >
+                  Отправить в мои поездки
+                </button>
               </div>
-            </button>
-          )
-        })}
-      </div>
+            </div>
+          )}
+        </div>
+      )}
 
-      {activePost && (() => {
-        const modalSafeImages = getSafeImages(activePost)
-        const modalIndex = imageIndexes[activePost.id] ?? 0
-        const modalImage = modalSafeImages[modalIndex % modalSafeImages.length]
-        const modalLoading = loadingImages[activePost.id]
-
-        return (
+      {activePoint && (
+        <div className="point-modal-backdrop" onClick={handleClosePointModal}>
           <div
-            className="feed-post-backdrop"
-            onClick={() => setActivePost(null)}
+            className="point-modal"
+            onClick={e => {
+              e.stopPropagation()
+            }}
           >
-            <div
-              className="feed-post-modal"
-              onClick={e => e.stopPropagation()}
-            >
+            <div className="point-modal-header">
               <button
                 type="button"
-                className="feed-post-close"
-                onClick={() => setActivePost(null)}
+                className="point-modal-close"
+                onClick={handleClosePointModal}
               >
                 ✕
               </button>
 
-              <div className="feed-post-image-wrap">
-                <img
-                  src={modalImage}
-                  alt={activePost.title}
-                  className="feed-post-image"
-                  onError={() => {
-                    setFailedImages(prev => ({ ...prev, [modalImage]: true }))
-                  }}
-                />
+              <div className="point-modal-title">{activePoint.point.title}</div>
 
-                {modalSafeImages.length > 1 && (
-                  <>
+              {activePoint.point.time && (
+                <div className="point-modal-time">{activePoint.point.time}</div>
+              )}
+
+              <div className="point-modal-day">{activePoint.dayTitle}</div>
+            </div>
+
+            {isPointImagesLoading && visiblePointImages.length === 0 && (
+              <div className="point-modal-loading">Загружаем фотографии места…</div>
+            )}
+
+            {visiblePointImages.length > 0 && (
+              <div className="point-modal-carousel">
+                <div className="point-modal-carousel-inner">
+                  {visiblePointImages.length > 1 && (
                     <button
                       type="button"
-                      className="feed-carousel-btn left"
-                      onClick={e => showPrevImage(e, activePost)}
+                      className="point-modal-carousel-btn left"
+                      onClick={showPrevImage}
                     >
-                      ‹
+                      ◀
                     </button>
+                  )}
 
+                  <img
+                    src={visiblePointImages[activeImageIndex % visiblePointImages.length]}
+                    alt={activePoint.point.title}
+                    className="point-modal-image"
+                    onClick={() =>
+                      openZoomImage(
+                        visiblePointImages[activeImageIndex % visiblePointImages.length],
+                        activePoint.point.title
+                      )
+                    }
+                    onError={() => {
+                      const broken =
+                        visiblePointImages[activeImageIndex % visiblePointImages.length]
+                      setFailedPointImages(prev => ({ ...prev, [broken]: true }))
+                    }}
+                  />
+
+                  {visiblePointImages.length > 1 && (
                     <button
                       type="button"
-                      className="feed-carousel-btn right"
-                      onClick={e => showNextImage(e, activePost)}
+                      className="point-modal-carousel-btn right"
+                      onClick={showNextImage}
                     >
-                      ›
+                      ▶
                     </button>
-
-                    <div className="feed-carousel-counter">
-                      {modalIndex + 1} / {modalSafeImages.length}
-                    </div>
-                  </>
-                )}
-
-                {modalLoading && (
-                  <div className="feed-post-image-loader">
-                    Ищем более подходящее фото…
-                  </div>
-                )}
-              </div>
-
-              <div className="feed-post-body">
-                <div className="feed-post-topline">
-                  <span className="feed-type">{feedTypeLabel(activePost.type)}</span>
-                  <span className="feed-city-tag">{activePost.city}</span>
-                </div>
-
-                <div className="feed-post-title">{activePost.title}</div>
-                <div className="feed-post-description">{activePost.description}</div>
-
-                <div className="feed-post-stats">
-                  {activePost.type === 'route' ? (
-                    <>
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">{activePost.daysCount ?? '—'}</div>
-                        <div className="feed-post-stat-label">дней</div>
-                      </div>
-
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">{activePost.pointsCount ?? '—'}</div>
-                        <div className="feed-post-stat-label">точек</div>
-                      </div>
-
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">
-                          {routeDifficultyLabel(activePost.difficulty)}
-                        </div>
-                        <div className="feed-post-stat-label">сложность</div>
-                      </div>
-
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">
-                          {typeof activePost.distanceKm !== 'undefined'
-                            ? `~${activePost.distanceKm}`
-                            : '—'}
-                        </div>
-                        <div className="feed-post-stat-label">км</div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">{feedTypeLabel(activePost.type)}</div>
-                        <div className="feed-post-stat-label">тип поста</div>
-                      </div>
-
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">{activePost.city}</div>
-                        <div className="feed-post-stat-label">город</div>
-                      </div>
-
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">{activePost.pointTime || '—'}</div>
-                        <div className="feed-post-stat-label">время</div>
-                      </div>
-
-                      <div className="feed-post-stat">
-                        <div className="feed-post-stat-value">
-                          {activePost.sourceRouteTitle || '—'}
-                        </div>
-                        <div className="feed-post-stat-label">источник</div>
-                      </div>
-                    </>
                   )}
                 </div>
 
-                {activePost.previewPoints.length > 0 && (
-                  <div className="feed-post-points">
-                    {activePost.previewPoints.map(point => (
-                      <span key={point} className="feed-post-point-chip">
-                        {point}
-                      </span>
+                {visiblePointImages.length > 1 && (
+                  <div className="point-modal-thumbs">
+                    {visiblePointImages.map((img, idx) => (
+                      <button
+                        key={`${img}-${idx}`}
+                        type="button"
+                        className={
+                          idx === activeImageIndex
+                            ? 'point-modal-thumb active'
+                            : 'point-modal-thumb'
+                        }
+                        onClick={() => setActiveImageIndex(idx)}
+                      >
+                        <img
+                          src={img}
+                          alt={`${activePoint.point.title} ${idx + 1}`}
+                          onError={() => {
+                            setFailedPointImages(prev => ({ ...prev, [img]: true }))
+                          }}
+                        />
+                      </button>
                     ))}
                   </div>
                 )}
-
-                <div className="feed-post-actions">
-                  <button
-                    type="button"
-                    className={
-                      likedIds.includes(activePost.id)
-                        ? 'feed-action-btn active'
-                        : 'feed-action-btn'
-                    }
-                    onClick={() => toggleLike(activePost.id)}
-                  >
-                    ❤️ {likesMap[activePost.id] ?? activePost.likes}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={
-                      savedIds.includes(activePost.id)
-                        ? 'feed-action-btn active'
-                        : 'feed-action-btn'
-                    }
-                    onClick={() => handleSaveTrip(activePost)}
-                  >
-                    🔖 {savedIds.includes(activePost.id) ? 'Сохранено' : 'Сохранить'}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="feed-open-route-btn"
-                    onClick={() => {
-                      setActivePost(null)
-                      onOpenRoutes(activePost.city, activePost.routeId)
-                    }}
-                  >
-                    Открыть маршрут
-                  </button>
-                </div>
               </div>
-            </div>
+            )}
+
+            {!isPointImagesLoading && visiblePointImages.length === 0 && (
+              <div className="point-modal-no-images">
+                Пока нет фотографий этого места. Ты можешь добавить их сам.
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="point-modal-add-photo-btn"
+              onClick={handleAddPlacePhoto}
+            >
+              + Добавить фото этого места
+            </button>
+
+            {activePoint.point.description && (
+              <div className="point-modal-inline-description">
+                {activePoint.point.description}
+              </div>
+            )}
+
+            {isWikiVisible && (
+              <div className="point-modal-wiki">
+                {wikiInfo.loading && <div>Загружаем описание…</div>}
+
+                {wikiInfo.error && !wikiInfo.extract && (
+                  <div>
+                    Не удалось загрузить описание с Википедии. Попробуйте позже или
+                    откройте это место на карте.
+                  </div>
+                )}
+
+                {!wikiInfo.loading && wikiInfo.extract && (
+                  <>
+                    <div className="point-modal-wiki-extract">{wikiInfo.extract}</div>
+                    {wikiInfo.url && (
+                      <a
+                        href={wikiInfo.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="point-modal-wiki-link"
+                      >
+                        Открыть статью в Википедии
+                      </a>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
-        )
-      })()}
+        </div>
+      )}
+
+      {zoomedImage && (
+        <div className="image-zoom-backdrop" onClick={closeZoomImage}>
+          <div className="image-zoom-modal" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              className="image-zoom-close"
+              onClick={closeZoomImage}
+            >
+              ✕
+            </button>
+
+            <img
+              src={zoomedImage}
+              alt={zoomedImageTitle}
+              className="image-zoom-img"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
