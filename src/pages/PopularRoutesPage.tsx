@@ -219,7 +219,12 @@ const loadCloudPointImages = async (
 const extractPhotosFromApi = (data: any): string[] => {
   if (!data || typeof data !== 'object') return []
 
-  const candidates: unknown[] = [data.photos, data.publicUrls, data.urls, data.images]
+  const candidates: unknown[] = [
+    data.photos,
+    data.publicUrls,
+    data.urls,
+    data.images,
+  ]
 
   for (const c of candidates) {
     if (Array.isArray(c)) {
@@ -752,26 +757,64 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
   }
 
   const fetchPhotosFromBackend = async (
-    params: URLSearchParams
+    city: string,
+    title: string,
+    limit = 6
   ): Promise<string[]> => {
-    const urlsToTry = [
+    const params = new URLSearchParams({
+      city,
+      title,
+    })
+
+    const getUrls = [
       `${API_BASE}/api/photos?${params.toString()}`,
       `${API_BASE}/photos?${params.toString()}`,
     ]
 
-    for (const url of urlsToTry) {
+    for (const url of getUrls) {
       try {
         const resp = await fetch(url)
         if (!resp.ok) continue
 
         const data = await resp.json()
-        const remotePhotos = extractPhotosFromApi(data)
+        const existingPhotos = extractPhotosFromApi(data)
 
-        if (remotePhotos.length > 0) {
-          return remotePhotos
+        if (existingPhotos.length > 0) {
+          console.log('[photos] found existing', existingPhotos)
+          return existingPhotos
         }
       } catch (e) {
         console.error('photos api error', url, e)
+      }
+    }
+
+    const parseUrls = [`${API_BASE}/parse`, `${API_BASE}/api/parse`]
+
+    for (const url of parseUrls) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            city,
+            title,
+            limit,
+          }),
+        })
+
+        if (!resp.ok) continue
+
+        const data = await resp.json()
+        const parsedPhotos = extractPhotosFromApi(data)
+
+        if (parsedPhotos.length > 0) {
+          console.log('[photos] parsed fresh', parsedPhotos)
+          return parsedPhotos
+        }
+      } catch (e) {
+        console.error('parse api error', url, e)
       }
     }
 
@@ -835,13 +878,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       return
     }
 
-    const params = new URLSearchParams({
-      city: route.city || cityTitle,
-      title: cleanupPlaceTitle(point.title || ''),
-    })
+    const normalizedCity = route.city || cityTitle
+    const normalizedTitle = cleanupPlaceTitle(point.title || '')
 
     try {
-      const remotePhotos = await fetchPhotosFromBackend(params)
+      const remotePhotos = await fetchPhotosFromBackend(normalizedCity, normalizedTitle, 6)
 
       if (pointRequestRef.current !== currentRequestId) return
 
@@ -856,6 +897,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           return Array.from(new Set(all.filter(Boolean)))
         })
         setIsPointImagesLoading(false)
+        return
       }
     } catch (e) {
       console.error('backend point photos load error', e)
