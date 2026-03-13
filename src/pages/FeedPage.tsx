@@ -163,6 +163,45 @@ const isUtilityPoint = (title?: string): boolean => {
   return utilityPatterns.some(re => re.test(t))
 }
 
+const isAbsoluteUrl = (value: string): boolean => {
+  return /^https?:\/\//i.test(value)
+}
+
+const normalizeImageUrl = (value?: string | null): string => {
+  const v = String(value || '').trim()
+  if (!v) return ''
+
+  if (isAbsoluteUrl(v)) return v
+
+  if (v.startsWith('//')) {
+    return `${window.location.protocol}${v}`
+  }
+
+  if (v.startsWith('/')) {
+    return `${API_BASE_URL}${v}`
+  }
+
+  return v
+}
+
+const isProbablyValidImageUrl = (value?: string): boolean => {
+  const v = normalizeImageUrl(value)
+  if (!v) return false
+
+  return v.startsWith('http://') || v.startsWith('https://')
+}
+
+const dedupeImages = (images: string[]): string[] => {
+  return Array.from(
+    new Set(
+      images
+        .map(img => normalizeImageUrl(img))
+        .filter(Boolean)
+        .filter(img => !img.includes('example.com'))
+    )
+  )
+}
+
 const buildRoutePreview = (route: PopularRoute): string[] => {
   const points: string[] = []
 
@@ -176,17 +215,6 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   }
 
   return points
-}
-
-const dedupeImages = (images: string[]): string[] => {
-  return Array.from(
-    new Set(
-      images
-        .map(img => String(img || '').trim())
-        .filter(Boolean)
-        .filter(img => !img.includes('example.com'))
-    )
-  )
 }
 
 const getCityCoverImage = (city: string): string => {
@@ -447,6 +475,20 @@ const pollPlaceUntilReady = async (
   return null
 }
 
+const extractPhotoUrls = (photos: PlacePhotoDto[]): string[] => {
+  const result: string[] = []
+
+  for (const photo of photos || []) {
+    const original = normalizeImageUrl(photo.url)
+    const thumb = normalizeImageUrl(photo.thumb_url)
+
+    if (isProbablyValidImageUrl(original)) result.push(original)
+    if (isProbablyValidImageUrl(thumb)) result.push(thumb)
+  }
+
+  return dedupeImages(result)
+}
+
 const fetchBackendPlaceImagesRaw = async (
   city: string,
   title: string
@@ -455,22 +497,19 @@ const fetchBackendPlaceImagesRaw = async (
     const response = await fetchPlaceFullByTitle(city, title)
 
     if (response.status === 'ready') {
-      return dedupeImages(
-        (response.data.photos || []).map(photo => photo.thumb_url || photo.url || '')
-      )
+      return extractPhotoUrls(response.data.photos || [])
     }
 
     if (response.status === 'processing') {
       const readyResponse = await pollPlaceUntilReady(city, title, response.jobId)
       if (readyResponse?.status === 'ready') {
-        return dedupeImages(
-          (readyResponse.data.photos || []).map(photo => photo.thumb_url || photo.url || '')
-        )
+        return extractPhotoUrls(readyResponse.data.photos || [])
       }
     }
 
     return []
-  } catch {
+  } catch (error) {
+    console.error('fetchBackendPlaceImagesRaw error:', city, title, error)
     return []
   }
 }
@@ -491,18 +530,38 @@ const getRouteMeaningfulPoints = (route: PopularRoute): string[] => {
 }
 
 const mergeRouteImages = (post: FeedPost, backendImages: string[]): string[] => {
+  const safeBackendImages = backendImages
+    .map(normalizeImageUrl)
+    .filter(isProbablyValidImageUrl)
+
+  const safeCurrentImages = (post.images || [])
+    .map(normalizeImageUrl)
+    .filter(isProbablyValidImageUrl)
+
+  const safeMainImage = normalizeImageUrl(post.image)
+
   return dedupeImages([
-    ...backendImages,
-    ...post.images,
-    post.image,
+    ...safeCurrentImages,
+    safeMainImage,
+    ...safeBackendImages,
   ]).slice(0, MAX_ROUTE_FEED_IMAGES)
 }
 
 const mergePlaceImages = (post: FeedPost, backendImages: string[]): string[] => {
+  const safeBackendImages = backendImages
+    .map(normalizeImageUrl)
+    .filter(isProbablyValidImageUrl)
+
+  const safeCurrentImages = (post.images || [])
+    .map(normalizeImageUrl)
+    .filter(isProbablyValidImageUrl)
+
+  const safeMainImage = normalizeImageUrl(post.image)
+
   return dedupeImages([
-    ...backendImages,
-    ...post.images,
-    post.image,
+    ...safeCurrentImages,
+    safeMainImage,
+    ...safeBackendImages,
   ])
 }
 
@@ -566,9 +625,10 @@ export const FeedPage: React.FC<Props> = ({
             if (cancelled) return post
 
             const finalImages = mergePlaceImages(post, backendImages)
+
             return {
               ...post,
-              image: finalImages[0] || getCityCoverImage(post.city),
+              image: finalImages[0] || normalizeImageUrl(getCityCoverImage(post.city)),
               images: finalImages,
             }
           }
@@ -580,15 +640,19 @@ export const FeedPage: React.FC<Props> = ({
             for (const title of pointTitles) {
               const images = await getCachedBackendPlaceImages(post.city, title)
               collected.push(...images)
-              if (dedupeImages(collected).length >= MAX_ROUTE_FEED_IMAGES) break
+
+              if (dedupeImages(collected).length >= MAX_ROUTE_FEED_IMAGES) {
+                break
+              }
             }
 
             if (cancelled) return post
 
             const finalImages = mergeRouteImages(post, dedupeImages(collected))
+
             return {
               ...post,
-              image: finalImages[0] || getCityCoverImage(post.city),
+              image: finalImages[0] || normalizeImageUrl(getCityCoverImage(post.city)),
               images: finalImages,
             }
           }
@@ -632,17 +696,20 @@ export const FeedPage: React.FC<Props> = ({
   }
 
   const getVisibleImages = (post: FeedPost): string[] => {
-    const source = post.images?.length ? post.images : post.image ? [post.image] : []
+    const source = dedupeImages(
+      post.images?.length ? post.images : post.image ? [post.image] : []
+    )
 
     const visible = source.filter(img => {
-      if (!img) return false
-      return !failedImages[`${post.id}_${img}`]
+      const normalized = normalizeImageUrl(img)
+      if (!normalized) return false
+      return !failedImages[`${post.id}_${normalized}`]
     })
 
     if (visible.length > 0) return visible
 
-    const fallback = getCityCoverImage(post.city)
-    if (!failedImages[`${post.id}_${fallback}`]) {
+    const fallback = normalizeImageUrl(getCityCoverImage(post.city))
+    if (fallback && !failedImages[`${post.id}_${fallback}`]) {
       return [fallback]
     }
 
@@ -723,13 +790,14 @@ export const FeedPage: React.FC<Props> = ({
 
           {currentImage ? (
             <img
-              src={currentImage}
+              src={normalizeImageUrl(currentImage)}
               alt={post.title}
               className="feed-image"
               onError={() => {
+                const normalized = normalizeImageUrl(currentImage)
                 setFailedImages(prev => ({
                   ...prev,
-                  [`${post.id}_${currentImage}`]: true,
+                  [`${post.id}_${normalized}`]: true,
                 }))
               }}
             />
@@ -873,13 +941,14 @@ export const FeedPage: React.FC<Props> = ({
 
             {currentImage ? (
               <img
-                src={currentImage}
+                src={normalizeImageUrl(currentImage)}
                 alt={openedPost.title}
                 className="feed-post-image"
                 onError={() => {
+                  const normalized = normalizeImageUrl(currentImage)
                   setFailedImages(prev => ({
                     ...prev,
-                    [`${openedPost.id}_${currentImage}`]: true,
+                    [`${openedPost.id}_${normalized}`]: true,
                   }))
                 }}
               />
