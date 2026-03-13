@@ -150,6 +150,7 @@ const getCityCoverUrl = (cityFolder: string): string =>
   `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
 
 const MAX_CLOUD_POINT_IMAGES = 8
+const CLOUD_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'webp', 'png']
 
 const normalizeText = (text: string): string => {
   return text.replace(/\s+/g, ' ').trim()
@@ -212,6 +213,11 @@ const buildLegacyCloudPrefix = (
   return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}`
 }
 
+const buildPlacesCloudPrefix = (cityFolder: string, title?: string): string => {
+  const pointSlug = buildPointSlug(title, 'place')
+  return `${CLOUD_BASE_URL}/${cityFolder}/places/${pointSlug}`
+}
+
 const probeImageUrl = (url: string): Promise<boolean> => {
   return new Promise(resolve => {
     const img = new Image()
@@ -221,6 +227,39 @@ const probeImageUrl = (url: string): Promise<boolean> => {
   })
 }
 
+const filterWorkingImages = async (urls: string[]): Promise<string[]> => {
+  const unique = Array.from(new Set(urls.filter(Boolean)))
+
+  if (unique.length === 0) return []
+
+  const checks = await Promise.all(
+    unique.map(async url => ({
+      url,
+      ok: await probeImageUrl(url),
+    }))
+  )
+
+  return checks.filter(item => item.ok).map(item => item.url)
+}
+
+const loadImagesByPrefix = async (prefix: string): Promise<string[]> => {
+  const urls: string[] = []
+
+  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
+    for (const ext of CLOUD_IMAGE_EXTENSIONS) {
+      const url = `${prefix}/image-${i}.${ext}`
+      const ok = await probeImageUrl(url)
+
+      if (ok) {
+        urls.push(url)
+        break
+      }
+    }
+  }
+
+  return urls
+}
+
 const loadCloudPointImages = async (
   cityFolder: string,
   routeId: string,
@@ -228,27 +267,30 @@ const loadCloudPointImages = async (
   pointIndex: number,
   title?: string
 ): Promise<string[]> => {
-  const exactUrls: string[] = []
   const exactPrefix = buildExactCloudPrefix(cityFolder, routeId, dayIndex, pointIndex, title)
+  const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
+  const placesPrefix = buildPlacesCloudPrefix(cityFolder, title)
 
-  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${exactPrefix}/image-${i}.jpg`
-    const ok = await probeImageUrl(url)
-    if (ok) exactUrls.push(url)
-  }
+  console.log('[CLOUD SEARCH]', {
+    exactPrefix,
+    legacyPrefix,
+    placesPrefix,
+    title,
+    routeId,
+    dayIndex,
+    pointIndex,
+  })
 
+  const exactUrls = await loadImagesByPrefix(exactPrefix)
   if (exactUrls.length > 0) return exactUrls
 
-  const legacyUrls: string[] = []
-  const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
+  const legacyUrls = await loadImagesByPrefix(legacyPrefix)
+  if (legacyUrls.length > 0) return legacyUrls
 
-  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${legacyPrefix}/image-${i}.jpg`
-    const ok = await probeImageUrl(url)
-    if (ok) legacyUrls.push(url)
-  }
+  const placesUrls = await loadImagesByPrefix(placesPrefix)
+  if (placesUrls.length > 0) return placesUrls
 
-  return legacyUrls
+  return []
 }
 
 const extractPhotosFromApi = (data: any): string[] => {
@@ -828,6 +870,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     for (const url of photosUrls) {
       try {
+        console.log('[PHOTOS REQUEST]', url)
+
         const resp = await withTimeout(
           url,
           {
@@ -844,6 +888,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
         const remotePhotos = extractPhotosFromApi(parsed.data)
         if (remotePhotos.length > 0) {
+          console.log('[PHOTOS RESPONSE]', remotePhotos)
           return remotePhotos
         }
       } catch (e) {
@@ -865,6 +910,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     }
 
     const parseUrls = [`${API_BASE}/api/parse`, `${API_BASE}/parse`]
+
+    console.log('[PARSE REQUEST]', parsePayload)
 
     for (const url of parseUrls) {
       try {
@@ -888,6 +935,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
         const remotePhotos = extractPhotosFromApi(parsed.data)
         if (remotePhotos.length > 0) {
+          console.log('[PARSE RESPONSE]', remotePhotos)
           return remotePhotos
         }
       } catch (e) {
@@ -939,8 +987,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     const buildMergedImages = (...groups: string[][]) =>
       Array.from(new Set(groups.flat().filter(Boolean)))
 
-    const initialImages = buildMergedImages(baseImages, cachedImages)
-    setPointImages(initialImages)
+    setPointImages([])
 
     setWikiInfo({
       loading: true,
@@ -950,14 +997,28 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
     setIsWikiVisible(true)
 
+    console.log('[POINT OPEN]', {
+      title: point.title,
+      routeId: route.id,
+      dayIndex,
+      pointIndex,
+      city: route.city || cityTitle,
+      cacheKey,
+      baseImages,
+      cachedImages,
+      cloudPlacesPrefix: buildPlacesCloudPrefix(cityFolder, point.title),
+    })
+
     if (isExtra) {
-      setIsPointImagesLoading(false)
-      return
-    }
+      const extraImages = await filterWorkingImages(buildMergedImages(baseImages, cachedImages))
 
-    const hasAnyKnownPhotos = initialImages.length > 0
+      if (pointRequestRef.current !== currentRequestId) return
 
-    if (hasAnyKnownPhotos) {
+      setPointImages(extraImages)
+      setPointPhotosCache(prev => ({
+        ...prev,
+        [cacheKey]: extraImages,
+      }))
       setIsPointImagesLoading(false)
       return
     }
@@ -973,6 +1034,24 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
 
     try {
+      const knownWorkingImages = await filterWorkingImages(
+        buildMergedImages(baseImages, cachedImages)
+      )
+
+      if (pointRequestRef.current !== currentRequestId) return
+
+      if (knownWorkingImages.length > 0) {
+        console.log('[KNOWN WORKING IMAGES FOUND]', knownWorkingImages)
+
+        setPointImages(knownWorkingImages)
+        setPointPhotosCache(prev => ({
+          ...prev,
+          [cacheKey]: knownWorkingImages,
+        }))
+        setIsPointImagesLoading(false)
+        return
+      }
+
       const cloudPhotos = await loadCloudPointImages(
         cityFolder,
         route.id,
@@ -984,7 +1063,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       if (pointRequestRef.current !== currentRequestId) return
 
       if (cloudPhotos.length > 0) {
-        const merged = buildMergedImages(baseImages, cachedImages, cloudPhotos)
+        const merged = buildMergedImages(knownWorkingImages, cloudPhotos)
+
+        console.log('[CLOUD PHOTOS FOUND]', merged)
 
         setPointPhotosCache(prev => ({
           ...prev,
@@ -1001,11 +1082,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       if (pointRequestRef.current !== currentRequestId) return
 
       if (readyPhotos.length > 0) {
-        const merged = buildMergedImages(baseImages, cachedImages, readyPhotos)
+        const workingReadyPhotos = await filterWorkingImages(readyPhotos)
+        const merged = buildMergedImages(knownWorkingImages, workingReadyPhotos)
+
+        console.log('[READY PHOTOS FOUND]', merged)
 
         setPointPhotosCache(prev => ({
           ...prev,
-          [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], readyPhotos),
+          [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], workingReadyPhotos),
         }))
 
         setPointImages(merged)
@@ -1018,11 +1102,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       if (pointRequestRef.current !== currentRequestId) return
 
       if (parsedPhotos.length > 0) {
-        const merged = buildMergedImages(baseImages, cachedImages, parsedPhotos)
+        const workingParsedPhotos = await filterWorkingImages(parsedPhotos)
+        const merged = buildMergedImages(knownWorkingImages, workingParsedPhotos)
+
+        console.log('[PARSED PHOTOS FOUND]', merged)
 
         setPointPhotosCache(prev => ({
           ...prev,
-          [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], parsedPhotos),
+          [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], workingParsedPhotos),
         }))
 
         setPointImages(merged)
@@ -1030,6 +1117,18 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         return
       }
 
+      console.log('[NO PHOTOS FOUND]', {
+        title: point.title,
+        routeId: route.id,
+        dayIndex,
+        pointIndex,
+      })
+
+      setPointPhotosCache(prev => ({
+        ...prev,
+        [cacheKey]: [],
+      }))
+      setPointImages([])
       setIsPointImagesLoading(false)
     } catch (e) {
       console.error('openPointModal photos load error', e)
@@ -1352,6 +1451,30 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
   const activeRoutePointsCount = activeRoute ? countRoutePoints(activeRoute) : 0
   const activeRoutePreview = activeRoute ? buildRoutePreview(activeRoute) : []
+
+  const removeBrokenPointImageFromCache = (broken: string) => {
+    if (!activePoint || !activeRoute) return
+
+    const currentCacheKey =
+      activePoint.pointIndex < 0
+        ? `extra_${buildPointCacheKey(
+            activeRoute.id,
+            activePoint.dayIndex,
+            Math.abs(activePoint.pointIndex),
+            activePoint.point.title
+          )}`
+        : buildPointCacheKey(
+            activeRoute.id,
+            activePoint.dayIndex,
+            activePoint.pointIndex,
+            activePoint.point.title
+          )
+
+    setPointPhotosCache(prev => ({
+      ...prev,
+      [currentCacheKey]: (prev[currentCacheKey] ?? []).filter(url => url !== broken),
+    }))
+  }
 
   return (
     <div className="popular-routes-page">
@@ -2114,7 +2237,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
                     onError={() => {
                       const broken =
                         visiblePointImages[activeImageIndex % visiblePointImages.length]
+
                       setFailedPointImages(prev => ({ ...prev, [broken]: true }))
+                      removeBrokenPointImageFromCache(broken)
                     }}
                   />
 
@@ -2147,6 +2272,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
                           alt={`${activePoint.point.title} ${idx + 1}`}
                           onError={() => {
                             setFailedPointImages(prev => ({ ...prev, [img]: true }))
+                            removeBrokenPointImageFromCache(img)
                           }}
                         />
                       </button>
