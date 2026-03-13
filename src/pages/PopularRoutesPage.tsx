@@ -68,6 +68,61 @@ type SavedTrip = {
   updatedAt: string
 }
 
+type PlacePhotoDto = {
+  id: string
+  place_id: string
+  url: string
+  thumb_url?: string | null
+  width?: number | null
+  height?: number | null
+  source?: string | null
+  user_id?: string | null
+  is_cover?: boolean
+  sort_order?: number
+  status?: string
+  created_at?: string
+}
+
+type PlaceDto = {
+  id: string
+  city_id: string
+  title: string
+  slug?: string
+  normalized_title?: string
+  description?: string | null
+  lat?: number | null
+  lon?: number | null
+  cover_image?: string | null
+  photos_count?: number
+  created_at?: string
+  updated_at?: string
+}
+
+type ResolvePlaceReadyResponse = {
+  status: 'ready'
+  data: {
+    place: PlaceDto
+    photos: PlacePhotoDto[]
+  }
+}
+
+type ResolvePlaceProcessingResponse = {
+  status: 'processing'
+  jobId?: number | string
+  placeId?: string
+  message?: string
+}
+
+type ResolvePlaceResponse =
+  | ResolvePlaceReadyResponse
+  | ResolvePlaceProcessingResponse
+
+type ParseJobResponse = {
+  id: number | string
+  status: 'pending' | 'processing' | 'done' | 'error'
+  payload?: Record<string, unknown> | null
+}
+
 const LOCAL_TRIPS_KEY = 'progid_my_trips'
 
 const normalizeCityKey = (city: string): string => {
@@ -130,6 +185,10 @@ const declension = (
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images-novichihin'
+
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'http://localhost:3000'
 
 const getCityCoverUrl = (cityFolder: string): string =>
   `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
@@ -259,6 +318,65 @@ const loadCloudPointImages = async (
   if (placesUrls.length > 0) return placesUrls
 
   return []
+}
+
+const wait = (ms: number): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, ms))
+
+const fetchPlaceFullByTitle = async (
+  city: string,
+  title: string
+): Promise<ResolvePlaceResponse> => {
+  const url = `${API_BASE_URL}/places/resolve/full?city=${encodeURIComponent(
+    city
+  )}&title=${encodeURIComponent(title)}`
+
+  const res = await fetch(url)
+  if (!res.ok) {
+    let errorText = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      errorText = data?.details || data?.error || errorText
+    } catch {
+      //
+    }
+    throw new Error(errorText)
+  }
+
+  return (await res.json()) as ResolvePlaceResponse
+}
+
+const fetchParseJob = async (
+  jobId: number | string
+): Promise<ParseJobResponse | null> => {
+  const res = await fetch(`${API_BASE_URL}/admin/parse-jobs/${jobId}`)
+  if (!res.ok) return null
+  return (await res.json()) as ParseJobResponse
+}
+
+const pollPlaceUntilReady = async (
+  city: string,
+  title: string,
+  jobId?: number | string,
+  maxAttempts = 12
+): Promise<ResolvePlaceReadyResponse | null> => {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await wait(attempt === 0 ? 1200 : 2000)
+
+    if (jobId) {
+      const job = await fetchParseJob(jobId)
+      if (job?.status === 'error') {
+        return null
+      }
+    }
+
+    const response = await fetchPlaceFullByTitle(city, title)
+    if (response.status === 'ready') {
+      return response
+    }
+  }
+
+  return null
 }
 
 const prepareYandexEmbed = (raw: string): string => {
@@ -826,8 +944,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         ...prev,
         [cacheKey]: immediateImages,
       }))
-      setIsPointImagesLoading(false)
-      return
     }
 
     if (isExtra) {
@@ -838,17 +954,55 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setIsPointImagesLoading(true)
 
     try {
-      const cloudPhotos = await loadCloudPointImages(
-        cityFolder,
-        route.id,
-        dayIndex,
-        pointIndex,
-        point.title
-      )
+      let backendImages: string[] = []
+
+      try {
+        const response = await fetchPlaceFullByTitle(route.city || cityTitle, point.title || '')
+
+        if (pointRequestRef.current !== currentRequestId) return
+
+        if (response.status === 'ready') {
+          backendImages = dedupeImages(
+            (response.data.photos || [])
+              .map(photo => photo.url || photo.thumb_url || '')
+              .filter(Boolean)
+          )
+        } else if (response.status === 'processing') {
+          const readyResponse = await pollPlaceUntilReady(
+            route.city || cityTitle,
+            point.title || '',
+            response.jobId
+          )
+
+          if (pointRequestRef.current !== currentRequestId) return
+
+          if (readyResponse?.status === 'ready') {
+            backendImages = dedupeImages(
+              (readyResponse.data.photos || [])
+                .map(photo => photo.url || photo.thumb_url || '')
+                .filter(Boolean)
+            )
+          }
+        }
+      } catch (backendError) {
+        console.error('backend place photos load error', backendError)
+      }
 
       if (pointRequestRef.current !== currentRequestId) return
 
-      const merged = buildMergedImages(cloudPhotos)
+      const cloudPhotos = backendImages.length
+        ? []
+        : await loadCloudPointImages(
+            cityFolder,
+            route.id,
+            dayIndex,
+            pointIndex,
+            point.title
+          )
+
+      if (pointRequestRef.current !== currentRequestId) return
+
+      const merged = buildMergedImages(baseImages, backendImages, cloudPhotos)
 
       setPointPhotosCache(prev => ({
         ...prev,
