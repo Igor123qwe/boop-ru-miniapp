@@ -70,6 +70,14 @@ type SavedTrip = {
 
 const LOCAL_TRIPS_KEY = 'progid_my_trips'
 
+// ========================================
+// API CONFIG
+// ========================================
+
+// true = всегда использовать локальный парсер на localhost:4000
+// false = использовать env или production backend
+const USE_LOCAL_PARSER = true
+
 const normalizeCityKey = (city: string): string => {
   const c = city.toLowerCase().trim()
 
@@ -128,23 +136,37 @@ const declension = (
 }
 
 const getDefaultApiBase = (): string => {
+  if (USE_LOCAL_PARSER) {
+    console.log('[API] Using LOCAL parser http://localhost:4000')
+    return 'http://localhost:4000'
+  }
+
   if (typeof window !== 'undefined') {
     const host = window.location.hostname
+    console.log('[API] window host =', host)
+
     if (host === 'localhost' || host === '127.0.0.1') {
+      console.log('[API] Detected localhost → parser localhost:4000')
       return 'http://localhost:4000'
     }
   }
 
+  console.log('[API] Using production backend')
   return 'https://progid-backend.vercel.app'
 }
+
+const CLOUD_BASE_URL =
+  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://storage.yandexcloud.net/progid-images-novichihin'
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   getDefaultApiBase()
 
-const CLOUD_BASE_URL =
-  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://storage.yandexcloud.net/progid-images-novichihin'
+console.log('==============================')
+console.log('[PROGID] API_BASE =', API_BASE)
+console.log('[PROGID] CLOUD_BASE_URL =', CLOUD_BASE_URL)
+console.log('==============================')
 
 const getCityCoverUrl = (cityFolder: string): string =>
   `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
@@ -228,6 +250,14 @@ const loadCloudPointImages = async (
   pointIndex: number,
   title?: string
 ): Promise<string[]> => {
+  console.log('[CLOUD] start lookup', {
+    cityFolder,
+    routeId,
+    dayIndex,
+    pointIndex,
+    title,
+  })
+
   const exactUrls: string[] = []
   const exactPrefix = buildExactCloudPrefix(cityFolder, routeId, dayIndex, pointIndex, title)
 
@@ -237,7 +267,10 @@ const loadCloudPointImages = async (
     if (ok) exactUrls.push(url)
   }
 
-  if (exactUrls.length > 0) return exactUrls
+  if (exactUrls.length > 0) {
+    console.log('[CLOUD] exact photos found', exactUrls.length)
+    return exactUrls
+  }
 
   const legacyUrls: string[] = []
   const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
@@ -246,6 +279,12 @@ const loadCloudPointImages = async (
     const url = `${legacyPrefix}/image-${i}.jpg`
     const ok = await probeImageUrl(url)
     if (ok) legacyUrls.push(url)
+  }
+
+  if (legacyUrls.length > 0) {
+    console.log('[CLOUD] legacy photos found', legacyUrls.length)
+  } else {
+    console.log('[CLOUD] no photos found')
   }
 
   return legacyUrls
@@ -834,6 +873,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     ]
 
     for (const url of photosUrls) {
+      console.log('[PHOTOS] request =>', url)
+
       try {
         const resp = await withTimeout(
           url,
@@ -844,17 +885,26 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           15000
         )
 
+        console.log('[PHOTOS] response status', resp.status)
+
         if (!resp.ok) continue
 
         const parsed = await safeJson(resp)
-        if (!parsed.ok) continue
+
+        if (!parsed.ok) {
+          console.warn('[PHOTOS] invalid JSON', parsed.text)
+          continue
+        }
 
         const remotePhotos = extractPhotosFromApi(parsed.data)
+
+        console.log('[PHOTOS] parsed photos count', remotePhotos.length)
+
         if (remotePhotos.length > 0) {
           return remotePhotos
         }
       } catch (e) {
-        console.error('photos api error', url, e)
+        console.error('[PHOTOS] api error', url, e)
       }
     }
 
@@ -876,6 +926,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     const parseUrls = [`${API_BASE}/api/parse`, `${API_BASE}/parse`]
 
     for (const url of parseUrls) {
+      console.log('[PARSE] request =>', url)
+      console.log('[PARSE] payload =>', parsePayload)
+
       try {
         const resp = await withTimeout(
           url,
@@ -890,17 +943,26 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           60000
         )
 
+        console.log('[PARSE] response status', resp.status)
+
         if (!resp.ok) continue
 
         const parsed = await safeJson(resp)
-        if (!parsed.ok) continue
+
+        if (!parsed.ok) {
+          console.warn('[PARSE] invalid JSON', parsed.text)
+          continue
+        }
 
         const remotePhotos = extractPhotosFromApi(parsed.data)
+
+        console.log('[PARSE] parsed photos count', remotePhotos.length)
+
         if (remotePhotos.length > 0) {
           return remotePhotos
         }
       } catch (e) {
-        console.error('parse api error', url, e)
+        console.error('[PARSE] api error', url, e)
       }
     }
 
@@ -941,6 +1003,15 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     const cached = pointPhotosCache[cacheKey] ?? []
     const existingImages = Array.from(new Set([...baseImages, ...cached]))
 
+    console.log('==============================')
+    console.log('[POINT OPEN]')
+    console.log('routeId =', route.id)
+    console.log('title =', point.title)
+    console.log('existingImages =', existingImages.length)
+    console.log('cacheKey =', cacheKey)
+    console.log('API_BASE =', API_BASE)
+    console.log('==============================')
+
     setPointImages(existingImages)
     setIsPointImagesLoading(existingImages.length === 0)
 
@@ -952,18 +1023,16 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
     setIsWikiVisible(true)
 
-    // Для вручную добавленных extra-точек ничего не парсим автоматически,
-    // используем только то, что уже есть у точки.
     if (isExtra) {
+      console.log('[POINT OPEN] extra point: parse disabled')
       if (existingImages.length === 0) {
         setIsPointImagesLoading(false)
       }
       return
     }
 
-    // Если фото уже есть в данных маршрута или в кэше —
-    // вообще никуда не идём и ничего не парсим.
     if (existingImages.length > 0) {
+      console.log('[POINT OPEN] using existing images, parse skipped')
       setIsPointImagesLoading(false)
       return
     }
@@ -977,11 +1046,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
 
     try {
+      console.log('[POINT OPEN] try backend stored photos')
       const storedPhotos = await fetchStoredPhotosFromBackend(params)
 
       if (pointRequestRef.current !== currentRequestId) return
 
       if (storedPhotos.length > 0) {
+        console.log('[POINT OPEN] stored photos found', storedPhotos.length)
         setPointPhotosCache(prev => ({
           ...prev,
           [cacheKey]: storedPhotos,
@@ -995,6 +1066,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     }
 
     try {
+      console.log('[POINT OPEN] try cloud photos')
       const cloudPhotos = await loadCloudPointImages(
         cityFolder,
         route.id,
@@ -1006,6 +1078,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       if (pointRequestRef.current !== currentRequestId) return
 
       if (cloudPhotos.length > 0) {
+        console.log('[POINT OPEN] cloud photos found', cloudPhotos.length)
         setPointPhotosCache(prev => ({
           ...prev,
           [cacheKey]: cloudPhotos,
@@ -1018,23 +1091,21 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       console.error('cloud photos load error', e)
     }
 
-    // И только если фото нет вообще нигде:
-    // - ни в point.images
-    // - ни в кэше
-    // - ни в /api/photos
-    // - ни в cloud storage
-    // запускаем parse.
     try {
+      console.log('[POINT OPEN] no photos anywhere → start parse')
       const parsedPhotos = await fetchParsedPhotosFromBackend(params)
 
       if (pointRequestRef.current !== currentRequestId) return
 
       if (parsedPhotos.length > 0) {
+        console.log('[POINT OPEN] parsed photos found', parsedPhotos.length)
         setPointPhotosCache(prev => ({
           ...prev,
           [cacheKey]: parsedPhotos,
         }))
         setPointImages(parsedPhotos)
+      } else {
+        console.log('[POINT OPEN] parse returned no photos')
       }
 
       setIsPointImagesLoading(false)
