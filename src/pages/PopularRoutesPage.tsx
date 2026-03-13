@@ -382,6 +382,28 @@ const isUtilityPoint = (title?: string): boolean => {
   return utilityPatterns.some(re => re.test(t))
 }
 
+const shouldSkipParseForPoint = (title?: string): boolean => {
+  const t = (title || '').trim().toLowerCase()
+  if (!t) return true
+
+  return [
+    /^обед/,
+    /^ужин/,
+    /^завтрак/,
+    /^кофе/,
+    /^ланч/,
+    /^перекус/,
+    /^переезд/,
+    /^возвращение/,
+    /^дорога/,
+    /^заселение/,
+    /^выезд/,
+    /^свободное время$/,
+    /^отдых$/,
+    /^прогулка$/,
+  ].some(re => re.test(t))
+}
+
 const routeDifficultyLabel = (difficulty?: string): string => {
   if (difficulty === 'medium') return 'Средний'
   if (difficulty === 'hard') return 'Сложный'
@@ -1093,6 +1115,23 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         }))
 
         setPointImages(merged)
+        setIsPointImagesLoading(false)
+        return
+      }
+
+      if (shouldSkipParseForPoint(point.title)) {
+        console.log('[SKIP PARSE FOR UTILITY POINT]', {
+          title: point.title,
+          routeId: route.id,
+          dayIndex,
+          pointIndex,
+        })
+
+        setPointPhotosCache(prev => ({
+          ...prev,
+          [cacheKey]: [],
+        }))
+        setPointImages([])
         setIsPointImagesLoading(false)
         return
       }
