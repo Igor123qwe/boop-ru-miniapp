@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import {
   readSavedPostIds,
@@ -86,9 +86,8 @@ const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'http://localhost:3000'
 
-const LOCAL_TRIPS_KEY = 'progid_my_trips'
-const MAX_ROUTE_FEED_IMAGES = 10
-const MAX_ROUTE_BACKEND_POINTS_TO_TRY = 4
+const MAX_ROUTE_FEED_IMAGES = 12
+const MAX_ROUTE_BACKEND_POINTS_TO_TRY = 6
 
 const normalizeText = (value?: string): string => {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -448,7 +447,7 @@ const pollPlaceUntilReady = async (
   return null
 }
 
-const fetchBackendPlaceImages = async (
+const fetchBackendPlaceImagesRaw = async (
   city: string,
   title: string
 ): Promise<string[]> => {
@@ -483,12 +482,28 @@ const getRouteMeaningfulPoints = (route: PopularRoute): string[] => {
     for (const point of day.points) {
       const title = point.title?.trim()
       if (!title || isUtilityPoint(title)) continue
-      titles.push(title)
+      if (!titles.includes(title)) titles.push(title)
       if (titles.length >= MAX_ROUTE_BACKEND_POINTS_TO_TRY) return titles
     }
   }
 
   return titles
+}
+
+const mergeRouteImages = (post: FeedPost, backendImages: string[]): string[] => {
+  return dedupeImages([
+    ...backendImages,
+    ...post.images,
+    post.image,
+  ]).slice(0, MAX_ROUTE_FEED_IMAGES)
+}
+
+const mergePlaceImages = (post: FeedPost, backendImages: string[]): string[] => {
+  return dedupeImages([
+    ...backendImages,
+    ...post.images,
+    post.image,
+  ])
 }
 
 export const FeedPage: React.FC<Props> = ({
@@ -503,6 +518,8 @@ export const FeedPage: React.FC<Props> = ({
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [openedPost, setOpenedPost] = useState<FeedPost | null>(null)
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
+
+  const backendImageCacheRef = useRef<Map<string, string[]>>(new Map())
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
@@ -525,6 +542,19 @@ export const FeedPage: React.FC<Props> = ({
     setFeedPosts(initialFeedPosts)
   }, [initialFeedPosts])
 
+  const getCachedBackendPlaceImages = async (
+    city: string,
+    title: string
+  ): Promise<string[]> => {
+    const key = `${normalizeText(city)}::${normalizeText(title)}`
+    const cached = backendImageCacheRef.current.get(key)
+    if (cached) return cached
+
+    const images = await fetchBackendPlaceImagesRaw(city, title)
+    backendImageCacheRef.current.set(key, images)
+    return images
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -532,44 +562,34 @@ export const FeedPage: React.FC<Props> = ({
       const enriched = await Promise.all(
         initialFeedPosts.map(async post => {
           if (post.type === 'place') {
-            const backendImages = await fetchBackendPlaceImages(post.city, post.title)
-            if (cancelled || backendImages.length === 0) return post
+            const backendImages = await getCachedBackendPlaceImages(post.city, post.title)
+            if (cancelled) return post
 
+            const finalImages = mergePlaceImages(post, backendImages)
             return {
               ...post,
-              image: backendImages[0] || post.image,
-              images: backendImages,
+              image: finalImages[0] || getCityCoverImage(post.city),
+              images: finalImages,
             }
           }
 
           if (post.type === 'route') {
-            const ownImages = dedupeImages(post.images || [])
-            if (ownImages.length > 0) {
-              return {
-                ...post,
-                image: ownImages[0] || post.image,
-                images: ownImages,
-              }
-            }
-
             const pointTitles = getRouteMeaningfulPoints(post.route)
             const collected: string[] = []
 
             for (const title of pointTitles) {
-              const images = await fetchBackendPlaceImages(post.city, title)
+              const images = await getCachedBackendPlaceImages(post.city, title)
               collected.push(...images)
               if (dedupeImages(collected).length >= MAX_ROUTE_FEED_IMAGES) break
             }
 
             if (cancelled) return post
 
-            const routeImages = dedupeImages(collected).slice(0, MAX_ROUTE_FEED_IMAGES)
-            if (routeImages.length === 0) return post
-
+            const finalImages = mergeRouteImages(post, dedupeImages(collected))
             return {
               ...post,
-              image: routeImages[0] || post.image,
-              images: routeImages,
+              image: finalImages[0] || getCityCoverImage(post.city),
+              images: finalImages,
             }
           }
 
@@ -613,11 +633,20 @@ export const FeedPage: React.FC<Props> = ({
 
   const getVisibleImages = (post: FeedPost): string[] => {
     const source = post.images?.length ? post.images : post.image ? [post.image] : []
-    const visible = source.filter(img => img && !failedImages[`${post.id}_${img}`])
+
+    const visible = source.filter(img => {
+      if (!img) return false
+      return !failedImages[`${post.id}_${img}`]
+    })
 
     if (visible.length > 0) return visible
 
-    return post.image ? [post.image].filter(Boolean) : []
+    const fallback = getCityCoverImage(post.city)
+    if (!failedImages[`${post.id}_${fallback}`]) {
+      return [fallback]
+    }
+
+    return []
   }
 
   const getPostImageIndex = (postId: string, imagesLength: number) => {
