@@ -275,9 +275,7 @@ const buildFeedPosts = (): FeedPost[] => {
           normalizeText(point.description),
         ].join('::')
 
-        if (seenPlaces.has(placeKey)) {
-          return
-        }
+        if (seenPlaces.has(placeKey)) return
         seenPlaces.add(placeKey)
 
         const pointImages =
@@ -324,11 +322,22 @@ export const FeedPage: React.FC<Props> = ({
   const [savedPostIds, setSavedPostIds] = useState<string[]>([])
   const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
+  const [openedPost, setOpenedPost] = useState<FeedPost | null>(null)
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
     setSavedPostIds(readSavedPostIds())
   }, [])
+
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    if (openedPost) {
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.body.style.overflow = prevOverflow
+    }
+  }, [openedPost])
 
   const feedPosts = useMemo(() => buildFeedPosts(), [])
 
@@ -396,193 +405,348 @@ export const FeedPage: React.FC<Props> = ({
     }))
   }
 
-  return (
-    <div className="feed-page">
-      <div className="feed-page-header">
-        <div className="feed-page-topline">
-          Маршруты, достопримечательности и моменты в формате social travel feed
+  const renderCard = (post: FeedPost) => {
+    const visibleImages = getVisibleImages(post)
+    const currentImageIndex = getPostImageIndex(post.id, visibleImages.length)
+    const currentImage = visibleImages[currentImageIndex] || ''
+
+    const isLiked = likedPostIds.includes(post.id)
+    const isSaved = savedPostIds.includes(post.id)
+
+    return (
+      <article key={post.id} className="feed-card" onClick={() => setOpenedPost(post)}>
+        <div className="feed-image-wrap">
+          <div className="feed-image-overlay">
+            <div className="feed-image-chip">
+              {post.type === 'route'
+                ? 'Маршрут'
+                : post.type === 'moment'
+                  ? 'Момент'
+                  : 'Место'}
+            </div>
+            <div className="feed-image-chip">{post.city}</div>
+          </div>
+
+          {visibleImages.length > 1 && (
+            <button
+              type="button"
+              className="feed-carousel-btn left"
+              onClick={e => {
+                e.stopPropagation()
+                showPrevPostImage(post.id, visibleImages.length)
+              }}
+            >
+              ‹
+            </button>
+          )}
+
+          {currentImage ? (
+            <img
+              src={currentImage}
+              alt={post.title}
+              className="feed-image"
+              onError={() => {
+                setFailedImages(prev => ({
+                  ...prev,
+                  [`${post.id}_${currentImage}`]: true,
+                }))
+              }}
+            />
+          ) : (
+            <div className="feed-image" style={{ display: 'grid', placeItems: 'center' }}>
+              Нет фото
+            </div>
+          )}
+
+          {visibleImages.length > 1 && (
+            <button
+              type="button"
+              className="feed-carousel-btn right"
+              onClick={e => {
+                e.stopPropagation()
+                showNextPostImage(post.id, visibleImages.length)
+              }}
+            >
+              ›
+            </button>
+          )}
+
+          {visibleImages.length > 1 && (
+            <div className="feed-carousel-counter">
+              {currentImageIndex + 1} / {visibleImages.length}
+            </div>
+          )}
         </div>
 
-        <div className="feed-page-actions">
-          {onCreateRoute && (
-            <button type="button" className="feed-create-btn" onClick={onCreateRoute}>
-              Создать маршрут
-            </button>
+        <div className="feed-content">
+          <div className="feed-title">{post.title}</div>
+          <div className="feed-description">{post.description}</div>
+
+          <div className="feed-meta-line">
+            {post.type === 'place' && post.route?.title && (
+              <span>Из маршрута: {post.route.title}</span>
+            )}
+            {post.dayTitle && <span>{post.dayTitle}</span>}
+            {typeof post.distanceKm !== 'undefined' && <span>~ {post.distanceKm} км</span>}
+            {post.difficulty && <span>{routeDifficultyLabel(post.difficulty)}</span>}
+          </div>
+
+          {post.previewPoints.length > 0 && post.type === 'route' && (
+            <div className="feed-preview-points">
+              {post.previewPoints.map(point => (
+                <span key={point} className="feed-preview-point">
+                  {point}
+                </span>
+              ))}
+            </div>
           )}
 
-          {onCreatePlace && (
-            <button type="button" className="feed-create-btn" onClick={onCreatePlace}>
-              Добавить место
+          <div className="feed-actions">
+            <button
+              type="button"
+              className={`feed-action-btn ${isLiked ? 'active' : ''}`}
+              onClick={e => {
+                e.stopPropagation()
+                toggleLike(post.id)
+              }}
+            >
+              ❤️ {post.likes + (isLiked ? 1 : 0)}
             </button>
-          )}
 
-          {onCreateMoment && (
-            <button type="button" className="feed-create-btn" onClick={onCreateMoment}>
-              Добавить момент
+            <button
+              type="button"
+              className={`feed-action-btn ${isSaved ? 'active' : ''}`}
+              onClick={e => {
+                e.stopPropagation()
+                toggleSave(post.id)
+              }}
+            >
+              🔖 Сохранить
             </button>
+
+            <button
+              type="button"
+              className="feed-open-route-btn"
+              onClick={e => {
+                e.stopPropagation()
+                onOpenRoutes(post.city, post.routeId)
+              }}
+            >
+              Открыть
+            </button>
+          </div>
+
+          {visibleImages.length > 1 && (
+            <div className="feed-actions" style={{ marginTop: 10 }}>
+              {visibleImages.map((img, idx) => (
+                <button
+                  key={`${post.id}_${img}_${idx}`}
+                  type="button"
+                  className={idx === currentImageIndex ? 'feed-action-btn active' : 'feed-action-btn'}
+                  onClick={e => {
+                    e.stopPropagation()
+                    setPostImageIndex(post.id, idx)
+                  }}
+                  style={{ padding: '8px 10px', minWidth: 40 }}
+                >
+                  {idx + 1}
+                </button>
+              ))}
+            </div>
           )}
+        </div>
+      </article>
+    )
+  }
+
+  const renderModal = () => {
+    if (!openedPost) return null
+
+    const visibleImages = getVisibleImages(openedPost)
+    const currentImageIndex = getPostImageIndex(openedPost.id, visibleImages.length)
+    const currentImage = visibleImages[currentImageIndex] || ''
+    const isLiked = likedPostIds.includes(openedPost.id)
+    const isSaved = savedPostIds.includes(openedPost.id)
+
+    return (
+      <div className="feed-post-backdrop" onClick={() => setOpenedPost(null)}>
+        <div className="feed-post-modal" onClick={e => e.stopPropagation()}>
+          <button
+            type="button"
+            className="feed-post-close"
+            onClick={() => setOpenedPost(null)}
+          >
+            ✕
+          </button>
+
+          <div className="feed-post-image-wrap">
+            {visibleImages.length > 1 && (
+              <button
+                type="button"
+                className="feed-carousel-btn left"
+                onClick={() => showPrevPostImage(openedPost.id, visibleImages.length)}
+              >
+                ‹
+              </button>
+            )}
+
+            {currentImage ? (
+              <img
+                src={currentImage}
+                alt={openedPost.title}
+                className="feed-post-image"
+                onError={() => {
+                  setFailedImages(prev => ({
+                    ...prev,
+                    [`${openedPost.id}_${currentImage}`]: true,
+                  }))
+                }}
+              />
+            ) : (
+              <div
+                className="feed-post-image"
+                style={{ display: 'grid', placeItems: 'center' }}
+              >
+                Нет фото
+              </div>
+            )}
+
+            {visibleImages.length > 1 && (
+              <button
+                type="button"
+                className="feed-carousel-btn right"
+                onClick={() => showNextPostImage(openedPost.id, visibleImages.length)}
+              >
+                ›
+              </button>
+            )}
+
+            {visibleImages.length > 1 && (
+              <div className="feed-carousel-counter">
+                {currentImageIndex + 1} / {visibleImages.length}
+              </div>
+            )}
+          </div>
+
+          <div className="feed-post-body">
+            <div className="feed-post-topline">
+              <span className="feed-type">
+                {openedPost.type === 'route'
+                  ? 'Маршрут'
+                  : openedPost.type === 'moment'
+                    ? 'Момент'
+                    : 'Место'}
+              </span>
+              <span className="feed-city-tag">{openedPost.city}</span>
+            </div>
+
+            <div className="feed-post-title">{openedPost.title}</div>
+            <div className="feed-post-description">{openedPost.description}</div>
+
+            <div className="feed-post-stats">
+              <div className="feed-post-stat">
+                <div className="feed-post-stat-value">{openedPost.likes + (isLiked ? 1 : 0)}</div>
+                <div className="feed-post-stat-label">Лайков</div>
+              </div>
+
+              <div className="feed-post-stat">
+                <div className="feed-post-stat-value">{openedPost.pointsCount ?? '—'}</div>
+                <div className="feed-post-stat-label">Точек</div>
+              </div>
+
+              <div className="feed-post-stat">
+                <div className="feed-post-stat-value">
+                  {typeof openedPost.distanceKm !== 'undefined' ? `~${openedPost.distanceKm} км` : '—'}
+                </div>
+                <div className="feed-post-stat-label">Маршрут</div>
+              </div>
+
+              <div className="feed-post-stat">
+                <div className="feed-post-stat-value">
+                  {openedPost.difficulty ? routeDifficultyLabel(openedPost.difficulty) : '—'}
+                </div>
+                <div className="feed-post-stat-label">Сложность</div>
+              </div>
+            </div>
+
+            {openedPost.previewPoints.length > 0 && (
+              <div className="feed-post-points">
+                {openedPost.previewPoints.map(point => (
+                  <span key={point} className="feed-post-point-chip">
+                    {point}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="feed-post-actions">
+              <button
+                type="button"
+                className={`feed-action-btn ${isLiked ? 'active' : ''}`}
+                onClick={() => toggleLike(openedPost.id)}
+              >
+                ❤️ {openedPost.likes + (isLiked ? 1 : 0)}
+              </button>
+
+              <button
+                type="button"
+                className={`feed-action-btn ${isSaved ? 'active' : ''}`}
+                onClick={() => toggleSave(openedPost.id)}
+              >
+                🔖 Сохранить
+              </button>
+
+              <button
+                type="button"
+                className="feed-open-route-btn"
+                onClick={() => onOpenRoutes(openedPost.city, openedPost.routeId)}
+              >
+                Открыть маршрут
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="feed-page">
+      <div className="feed-header">
+        <h2>Лента</h2>
+        <div className="feed-subtitle">
+          Маршруты, достопримечательности и моменты в формате social travel feed
+        </div>
+      </div>
+
+      <div className="feed-compose-card">
+        <div className="feed-compose-left">
+          <div className="feed-compose-avatar">🧭</div>
+          <div className="feed-compose-actions">
+            {onCreateRoute && (
+              <button type="button" className="feed-compose-main-btn" onClick={onCreateRoute}>
+                Создать маршрут
+              </button>
+            )}
+            {onCreatePlace && (
+              <button type="button" className="feed-compose-icon-btn" onClick={onCreatePlace}>
+                ＋
+              </button>
+            )}
+            {onCreateMoment && (
+              <button type="button" className="feed-compose-icon-btn" onClick={onCreateMoment}>
+                ☰
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="feed-list">
-        {feedPosts.map(post => {
-          const visibleImages = getVisibleImages(post)
-          const currentImageIndex = getPostImageIndex(post.id, visibleImages.length)
-          const currentImage = visibleImages[currentImageIndex] || ''
-
-          const isLiked = likedPostIds.includes(post.id)
-          const isSaved = savedPostIds.includes(post.id)
-
-          return (
-            <article key={post.id} className="feed-card">
-              <div className="feed-card-media">
-                <div className="feed-card-badge-left">
-                  {post.type === 'route'
-                    ? 'Маршрут'
-                    : post.type === 'moment'
-                      ? 'Момент'
-                      : 'Место'}
-                </div>
-
-                <div className="feed-card-badge-right">{post.city}</div>
-
-                {visibleImages.length > 1 && (
-                  <button
-                    type="button"
-                    className="feed-card-arrow left"
-                    onClick={e => {
-                      e.stopPropagation()
-                      showPrevPostImage(post.id, visibleImages.length)
-                    }}
-                  >
-                    ‹
-                  </button>
-                )}
-
-                {currentImage ? (
-                  <img
-                    src={currentImage}
-                    alt={post.title}
-                    className="feed-card-image"
-                    onError={() => {
-                      setFailedImages(prev => ({
-                        ...prev,
-                        [`${post.id}_${currentImage}`]: true,
-                      }))
-                    }}
-                  />
-                ) : (
-                  <div className="feed-card-image-placeholder">Нет фото</div>
-                )}
-
-                {visibleImages.length > 1 && (
-                  <button
-                    type="button"
-                    className="feed-card-arrow right"
-                    onClick={e => {
-                      e.stopPropagation()
-                      showNextPostImage(post.id, visibleImages.length)
-                    }}
-                  >
-                    ›
-                  </button>
-                )}
-
-                {visibleImages.length > 1 && (
-                  <div className="feed-card-counter">
-                    {currentImageIndex + 1} / {visibleImages.length}
-                  </div>
-                )}
-              </div>
-
-              <div className="feed-card-content">
-                <h3 className="feed-card-title">{post.title}</h3>
-
-                <div className="feed-card-description">{post.description}</div>
-
-                {post.type === 'place' && post.route?.title && (
-                  <div className="feed-card-route-line">
-                    Из маршрута: {post.route.title}
-                  </div>
-                )}
-
-                <div className="feed-card-tags">
-                  {post.route?.title && (
-                    <span className="feed-card-tag">{post.route.title}</span>
-                  )}
-
-                  {post.dayTitle && (
-                    <span className="feed-card-tag">{post.dayTitle}</span>
-                  )}
-
-                  {typeof post.daysCount !== 'undefined' && post.type === 'route' && (
-                    <span className="feed-card-tag">
-                      {post.daysCount}{' '}
-                      {declension('день', 'дня', 'дней', post.daysCount)}
-                    </span>
-                  )}
-
-                  {typeof post.distanceKm !== 'undefined' && (
-                    <span className="feed-card-tag">~ {post.distanceKm} км</span>
-                  )}
-
-                  {post.difficulty && (
-                    <span className="feed-card-tag">
-                      {routeDifficultyLabel(post.difficulty)}
-                    </span>
-                  )}
-                </div>
-
-                <div className="feed-card-actions">
-                  <button
-                    type="button"
-                    className={`feed-action-btn ${isLiked ? 'active' : ''}`}
-                    onClick={() => toggleLike(post.id)}
-                  >
-                    ❤️ {post.likes + (isLiked ? 1 : 0)}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`feed-action-btn ${isSaved ? 'active' : ''}`}
-                    onClick={() => toggleSave(post.id)}
-                  >
-                    🔖 Сохранить
-                  </button>
-
-                  <button
-                    type="button"
-                    className="feed-open-btn"
-                    onClick={() => onOpenRoutes(post.city, post.routeId)}
-                  >
-                    Открыть
-                  </button>
-                </div>
-
-                {visibleImages.length > 1 && (
-                  <div className="feed-card-dots">
-                    {visibleImages.map((img, idx) => (
-                      <button
-                        key={`${post.id}_${img}_${idx}`}
-                        type="button"
-                        className={
-                          idx === currentImageIndex
-                            ? 'feed-card-dot active'
-                            : 'feed-card-dot'
-                        }
-                        onClick={e => {
-                          e.stopPropagation()
-                          setPostImageIndex(post.id, idx)
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </article>
-          )
-        })}
+        {feedPosts.map(renderCard)}
       </div>
+
+      {renderModal()}
     </div>
   )
 }
