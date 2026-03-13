@@ -46,6 +46,9 @@ const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images-novichihin'
 
+const MAX_PLACE_BASE_IMAGES = 8
+const MAX_ROUTE_FEED_IMAGES = 20
+
 const normalizeText = (value?: string): string => {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
 }
@@ -135,11 +138,58 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
+const slugify = (value: string): string => {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/ё/g, 'е')
+    .replace(/№/g, ' ')
+    .replace(/["'«»]/g, '')
+    .replace(/[^a-zа-я0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+}
+
+const cleanupPlaceTitle = (title: string): string => {
+  return title
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
+    .replace(/^Переезд\s+в\s+/i, '')
+    .replace(/^Прогулка\s+по\s+/i, '')
+    .replace(/^Посещение\s+/i, '')
+    .replace(/^Осмотр\s+/i, '')
+    .trim()
+}
+
+const buildPointSlug = (title?: string, fallback = 'point'): string => {
+  const clean = cleanupPlaceTitle(title || '')
+  const slug = slugify(clean)
+  return slug || fallback
+}
+
+const buildPlaceBaseImages = (
+  cityFolder: string,
+  title?: string,
+  limit = MAX_PLACE_BASE_IMAGES
+): string[] => {
+  const slug = buildPointSlug(title, 'point')
+  const result: string[] = []
+
+  for (let i = 1; i <= limit; i++) {
+    result.push(`${CLOUD_BASE_URL}/${cityFolder}/places/${slug}/image-${i}.jpg`)
+  }
+
+  return result
+}
+
 const getRouteOwnImages = (route: PopularRoute): string[] => {
   const imgs: string[] = []
 
-  if ((route as any).coverImage) imgs.push((route as any).coverImage)
-  if (Array.isArray((route as any).images)) imgs.push(...(route as any).images)
+  if ((route as any).coverImage) imgs.push((route as any).coverImage as string)
+  if (Array.isArray((route as any).images)) imgs.push(...((route as any).images as string[]))
 
   return Array.from(new Set(imgs.filter(Boolean)))
 }
@@ -170,16 +220,27 @@ const getRouteFeedImages = (route: PopularRoute): string[] => {
 
   collected.push(...getRouteOwnImages(route))
 
+  const cityFolder = normalizeCityFolder(route.city || '')
+
   for (const day of route.days) {
     for (const point of day.points) {
+      if (!point?.title?.trim()) continue
+      if (isUtilityPoint(point.title)) continue
+
       if (Array.isArray(point.images) && point.images.length > 0) {
         collected.push(...point.images.filter(Boolean))
+      } else {
+        collected.push(...buildPlaceBaseImages(cityFolder, point.title, 3))
       }
+
+      if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
     }
+
+    if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
   }
 
   const uniq = Array.from(new Set(collected.filter(Boolean)))
-  if (uniq.length > 0) return uniq
+  if (uniq.length > 0) return uniq.slice(0, MAX_ROUTE_FEED_IMAGES)
 
   return getRouteFallbackImages(route)
 }
@@ -191,6 +252,16 @@ const getPlaceFeedImages = (
 ): string[] => {
   const pointImages = getPointOwnImages(route, dayIndex, pointIndex)
   if (pointImages.length > 0) return pointImages
+
+  const point = dayIndex !== undefined && pointIndex !== undefined
+    ? route.days?.[dayIndex]?.points?.[pointIndex]
+    : undefined
+
+  const cityFolder = normalizeCityFolder(route.city || '')
+
+  if (point?.title?.trim()) {
+    return buildPlaceBaseImages(cityFolder, point.title)
+  }
 
   const routeImages = getRouteOwnImages(route)
   if (routeImages.length > 0) return routeImages
@@ -405,7 +476,7 @@ export const FeedPage: React.FC<Props> = ({
   }
 
   const getVisibleImages = (post: FeedPost): string[] => {
-    const source = post.images || (post.image ? [post.image] : [])
+    const source = post.images?.length ? post.images : post.image ? [post.image] : []
     return source.filter(img => img && !failedImages[`${post.id}_${img}`])
   }
 
