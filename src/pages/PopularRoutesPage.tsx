@@ -825,42 +825,45 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setZoomedImageTitle('')
   }
 
-  const fetchPhotosFromBackend = async (
-    params: URLSearchParams,
-    forceParse = false
+  const fetchStoredPhotosFromBackend = async (
+    params: URLSearchParams
   ): Promise<string[]> => {
     const photosUrls = [
       `${API_BASE}/api/photos?${params.toString()}`,
       `${API_BASE}/photos?${params.toString()}`,
     ]
 
-    if (!forceParse) {
-      for (const url of photosUrls) {
-        try {
-          const resp = await withTimeout(
-            url,
-            {
-              method: 'GET',
-              headers: { Accept: 'application/json' },
-            },
-            15000
-          )
+    for (const url of photosUrls) {
+      try {
+        const resp = await withTimeout(
+          url,
+          {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          },
+          15000
+        )
 
-          if (!resp.ok) continue
+        if (!resp.ok) continue
 
-          const parsed = await safeJson(resp)
-          if (!parsed.ok) continue
+        const parsed = await safeJson(resp)
+        if (!parsed.ok) continue
 
-          const remotePhotos = extractPhotosFromApi(parsed.data)
-          if (remotePhotos.length > 0) {
-            return remotePhotos
-          }
-        } catch (e) {
-          console.error('photos api error', url, e)
+        const remotePhotos = extractPhotosFromApi(parsed.data)
+        if (remotePhotos.length > 0) {
+          return remotePhotos
         }
+      } catch (e) {
+        console.error('photos api error', url, e)
       }
     }
 
+    return []
+  }
+
+  const fetchParsedPhotosFromBackend = async (
+    params: URLSearchParams
+  ): Promise<string[]> => {
     const parsePayload = {
       routeId: params.get('routeId') || undefined,
       dayIndex: params.get('dayIndex') || undefined,
@@ -932,26 +935,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       point,
     })
     setActiveImageIndex(0)
-    setIsPointImagesLoading(true)
     setFailedPointImages({})
 
-    const baseImages = Array.isArray(point.images) ? point.images : []
+    const baseImages = Array.isArray(point.images) ? point.images.filter(Boolean) : []
     const cached = pointPhotosCache[cacheKey] ?? []
+    const existingImages = Array.from(new Set([...baseImages, ...cached]))
 
-    const buildImages = (extra: string[] = []) => {
-      const all = [...baseImages, ...extra]
-      return Array.from(new Set(all.filter(Boolean)))
-    }
-
-    if (cached.length > 0) {
-      setPointImages(buildImages(cached))
-      setIsPointImagesLoading(false)
-    } else {
-      setPointImages(buildImages())
-      if (baseImages.length > 0) {
-        setIsPointImagesLoading(false)
-      }
-    }
+    setPointImages(existingImages)
+    setIsPointImagesLoading(existingImages.length === 0)
 
     setWikiInfo({
       loading: true,
@@ -961,14 +952,19 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
     setIsWikiVisible(true)
 
+    // Для вручную добавленных extra-точек ничего не парсим автоматически,
+    // используем только то, что уже есть у точки.
     if (isExtra) {
-      if (baseImages.length === 0 && cached.length === 0) {
+      if (existingImages.length === 0) {
         setIsPointImagesLoading(false)
       }
       return
     }
 
-    if (cached.length > 0) {
+    // Если фото уже есть в данных маршрута или в кэше —
+    // вообще никуда не идём и ничего не парсим.
+    if (existingImages.length > 0) {
+      setIsPointImagesLoading(false)
       return
     }
 
@@ -981,29 +977,55 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
 
     try {
-      const remotePhotos = await fetchPhotosFromBackend(params, false)
+      const storedPhotos = await fetchStoredPhotosFromBackend(params)
 
       if (pointRequestRef.current !== currentRequestId) return
 
-      if (remotePhotos.length > 0) {
+      if (storedPhotos.length > 0) {
         setPointPhotosCache(prev => ({
           ...prev,
-          [cacheKey]: remotePhotos,
+          [cacheKey]: storedPhotos,
         }))
-
-        setPointImages(prev => {
-          const all = [...prev, ...remotePhotos]
-          return Array.from(new Set(all.filter(Boolean)))
-        })
+        setPointImages(storedPhotos)
         setIsPointImagesLoading(false)
         return
       }
     } catch (e) {
-      console.error('backend point photos load error', e)
+      console.error('backend stored point photos load error', e)
     }
 
     try {
-      const parsedPhotos = await fetchPhotosFromBackend(params, true)
+      const cloudPhotos = await loadCloudPointImages(
+        cityFolder,
+        route.id,
+        dayIndex,
+        pointIndex,
+        point.title
+      )
+
+      if (pointRequestRef.current !== currentRequestId) return
+
+      if (cloudPhotos.length > 0) {
+        setPointPhotosCache(prev => ({
+          ...prev,
+          [cacheKey]: cloudPhotos,
+        }))
+        setPointImages(cloudPhotos)
+        setIsPointImagesLoading(false)
+        return
+      }
+    } catch (e) {
+      console.error('cloud photos load error', e)
+    }
+
+    // И только если фото нет вообще нигде:
+    // - ни в point.images
+    // - ни в кэше
+    // - ни в /api/photos
+    // - ни в cloud storage
+    // запускаем parse.
+    try {
+      const parsedPhotos = await fetchParsedPhotosFromBackend(params)
 
       if (pointRequestRef.current !== currentRequestId) return
 
@@ -1012,50 +1034,16 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           ...prev,
           [cacheKey]: parsedPhotos,
         }))
-
-        setPointImages(prev => {
-          const all = [...prev, ...parsedPhotos]
-          return Array.from(new Set(all.filter(Boolean)))
-        })
-        setIsPointImagesLoading(false)
-        return
+        setPointImages(parsedPhotos)
       }
+
+      setIsPointImagesLoading(false)
     } catch (e) {
       console.error('backend parse point photos error', e)
-    }
-
-    loadCloudPointImages(cityFolder, route.id, dayIndex, pointIndex, point.title)
-      .then(cloudPhotos => {
-        if (pointRequestRef.current !== currentRequestId) return
-
-        if (!cloudPhotos || cloudPhotos.length === 0) {
-          if (baseImages.length === 0) {
-            setIsPointImagesLoading(false)
-          }
-          return
-        }
-
-        setPointPhotosCache(prev => {
-          const prevCached = prev[cacheKey] ?? []
-          const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
-          return {
-            ...prev,
-            [cacheKey]: merged,
-          }
-        })
-
-        setPointImages(prev => {
-          const all = [...prev, ...cloudPhotos]
-          return Array.from(new Set(all.filter(Boolean)))
-        })
+      if (pointRequestRef.current === currentRequestId) {
         setIsPointImagesLoading(false)
-      })
-      .catch(err => {
-        console.error('cloud photos load error', err)
-        if (pointRequestRef.current === currentRequestId) {
-          setIsPointImagesLoading(false)
-        }
-      })
+      }
+    }
   }
 
   const handleCreateCustomRoute = () => {
