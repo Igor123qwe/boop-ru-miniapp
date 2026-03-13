@@ -51,6 +51,7 @@ const API_BASE =
   'https://progid-backend.vercel.app'
 
 const MAX_CLOUD_POINT_IMAGES = 8
+const MAX_ROUTE_FEED_IMAGES = 20
 
 const normalizeText = (value?: string): string => {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -256,16 +257,12 @@ const extractPhotosFromApi = (data: any): string[] => {
 const withTimeout = async (
   input: RequestInfo | URL,
   init?: RequestInit,
-  timeoutMs = 30000
+  timeoutMs = 20000
 ) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
-
   try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    })
+    return await fetch(input, { ...init, signal: controller.signal })
   } finally {
     clearTimeout(timer)
   }
@@ -274,44 +271,53 @@ const withTimeout = async (
 const safeJson = async (res: Response) => {
   const text = await res.text()
   try {
-    return {
-      ok: true,
-      data: JSON.parse(text),
-      text,
-    }
+    return JSON.parse(text)
   } catch {
-    return {
-      ok: false,
-      data: null,
-      text,
+    return null
+  }
+}
+
+const fetchReadyPhotosFromBackend = async (params: URLSearchParams): Promise<string[]> => {
+  const urls = [
+    `${API_BASE}/api/photos?${params.toString()}`,
+    `${API_BASE}/photos?${params.toString()}`,
+  ]
+
+  for (const url of urls) {
+    try {
+      const res = await withTimeout(url, { method: 'GET' }, 10000)
+      if (!res.ok) continue
+
+      const data = await safeJson(res)
+      if (!data) continue
+
+      const photos = extractPhotosFromApi(data)
+      if (photos.length > 0) {
+        return photos
+      }
+    } catch (e) {
+      console.error('feed /photos error', url, e)
     }
-  }
-}
-
-const getRouteOwnImages = (route: PopularRoute): string[] => {
-  const localImages: string[] = []
-
-  if ((route as any).coverImage) {
-    localImages.push((route as any).coverImage as string)
-  }
-
-  if (Array.isArray((route as any).images)) {
-    localImages.push(...((route as any).images as string[]))
-  }
-
-  return Array.from(new Set(localImages.filter(Boolean)))
-}
-
-const getRouteFallbackImages = (route: PopularRoute): string[] => {
-  const ownImages = getRouteOwnImages(route)
-  if (ownImages.length > 0) return ownImages
-
-  const cityFolder = normalizeCityFolder(route.city || '')
-  if (cityFolder) {
-    return [`${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`]
   }
 
   return []
+}
+
+const getRouteOwnImages = (route: PopularRoute): string[] => {
+  const imgs: string[] = []
+
+  if ((route as any).coverImage) imgs.push((route as any).coverImage)
+  if (Array.isArray((route as any).images)) imgs.push(...(route as any).images)
+
+  return Array.from(new Set(imgs.filter(Boolean)))
+}
+
+const getRouteFallbackImages = (route: PopularRoute): string[] => {
+  const own = getRouteOwnImages(route)
+  if (own.length) return own
+
+  const city = normalizeCityFolder(route.city || '')
+  return [`${CLOUD_BASE_URL}/${city}/city-cover.jpg`]
 }
 
 const buildRouteSemanticKey = (route: PopularRoute): string => {
@@ -393,11 +399,10 @@ const buildFeedPosts = (): FeedPost[] => {
   const seenPlaces = new Set<string>()
 
   for (const route of routes) {
-    const routeOwnImages = getRouteOwnImages(route)
-    const routeFallbackImages = getRouteFallbackImages(route)
     const previewPoints = buildRoutePreview(route)
     const pointsCount = countRoutePoints(route)
     const cityFolder = normalizeCityFolder(route.city || '')
+    const routeFallbackImages = getRouteFallbackImages(route)
 
     posts.push({
       id: `route_${route.id}_${buildRouteSemanticKey(route)}`,
@@ -506,39 +511,42 @@ export const FeedPage: React.FC<Props> = ({
   useEffect(() => {
     let cancelled = false
 
-    const loadImagesForPosts = async () => {
-      const nextResolved: Record<string, string[]> = {}
+    const loadImages = async () => {
+      const result: Record<string, string[]> = {}
 
       for (const post of feedPosts) {
         if (cancelled) return
 
         if (post.type === 'route') {
-          // Для маршрута: собираем фото СО ВСЕГО МАРШРУТА
           const collected: string[] = []
 
-          const routeOwnImages = getRouteOwnImages(post.route)
-          collected.push(...routeOwnImages)
+          collected.push(...getRouteOwnImages(post.route))
 
-          for (const day of post.route.days) {
+          for (let dayIndex = 0; dayIndex < post.route.days.length; dayIndex++) {
+            const day = post.route.days[dayIndex]
+
             for (let pointIndex = 0; pointIndex < day.points.length; pointIndex++) {
               const point = day.points[pointIndex]
               if (!point?.title?.trim()) continue
 
               if (Array.isArray(point.images) && point.images.length > 0) {
                 collected.push(...point.images.filter(Boolean))
+                if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
                 continue
               }
 
               try {
-                const cloudImages = await loadCloudPointImages(
+                const cloud = await loadCloudPointImages(
                   post.cityFolder,
                   post.route.id,
-                  post.route.days.indexOf(day),
+                  dayIndex,
                   pointIndex,
                   point.title
                 )
-                if (cloudImages.length > 0) {
-                  collected.push(...cloudImages)
+
+                if (cloud.length > 0) {
+                  collected.push(...cloud)
+                  if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
                   continue
                 }
               } catch (e) {
@@ -548,194 +556,83 @@ export const FeedPage: React.FC<Props> = ({
               try {
                 const params = new URLSearchParams({
                   routeId: post.route.id,
-                  dayIndex: String(post.route.days.indexOf(day)),
+                  dayIndex: String(dayIndex),
                   pointIndex: String(pointIndex),
                   city: post.city,
                   title: point.title || '',
                 })
 
-                const photoUrls = [
-                  `${API_BASE}/api/photos?${params.toString()}`,
-                  `${API_BASE}/photos?${params.toString()}`,
-                ]
-
-                let found = false
-
-                for (const url of photoUrls) {
-                  try {
-                    const resp = await withTimeout(
-                      url,
-                      {
-                        method: 'GET',
-                        headers: { Accept: 'application/json' },
-                      },
-                      12000
-                    )
-
-                    if (!resp.ok) continue
-
-                    const parsed = await safeJson(resp)
-                    if (!parsed.ok) continue
-
-                    const photos = extractPhotosFromApi(parsed.data)
-                    if (photos.length > 0) {
-                      collected.push(...photos)
-                      found = true
-                      break
-                    }
-                  } catch (e) {
-                    console.error('route /photos error', url, e)
-                  }
+                const backend = await fetchReadyPhotosFromBackend(params)
+                if (backend.length > 0) {
+                  collected.push(...backend)
                 }
 
-                if (found) continue
+                if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
               } catch (e) {
                 console.error('route backend images error', post.id, point.title, e)
               }
             }
+
+            if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
           }
 
           const uniqRouteImages = Array.from(new Set(collected.filter(Boolean)))
-          nextResolved[post.id] =
-            uniqRouteImages.length > 0 ? uniqRouteImages : getRouteFallbackImages(post.route)
+          result[post.id] =
+            uniqRouteImages.length > 0
+              ? uniqRouteImages.slice(0, MAX_ROUTE_FEED_IMAGES)
+              : getRouteFallbackImages(post.route)
+
           continue
         }
 
         if (post.type === 'place') {
-          // Для достопримечательности: только её фото
-          const collected: string[] = []
+          const imgs: string[] = []
 
           if (post.images?.length) {
-            collected.push(...post.images)
+            imgs.push(...post.images)
           }
 
-          const dayIndex = post.dayIndex
-          const pointIndex = post.pointIndex
-
-          if (
-            collected.length === 0 &&
-            typeof dayIndex === 'number' &&
-            typeof pointIndex === 'number'
-          ) {
+          if (!imgs.length && post.dayIndex !== undefined && post.pointIndex !== undefined) {
             try {
-              const cloudImages = await loadCloudPointImages(
+              const cloud = await loadCloudPointImages(
                 post.cityFolder,
                 post.route.id,
-                dayIndex,
-                pointIndex,
+                post.dayIndex,
+                post.pointIndex,
                 post.title
               )
-              if (cloudImages.length > 0) {
-                collected.push(...cloudImages)
-              }
+              if (cloud.length) imgs.push(...cloud)
             } catch (e) {
               console.error('place cloud images error', post.id, e)
             }
           }
 
-          if (
-            collected.length === 0 &&
-            typeof dayIndex === 'number' &&
-            typeof pointIndex === 'number'
-          ) {
+          if (!imgs.length && post.dayIndex !== undefined && post.pointIndex !== undefined) {
             try {
               const params = new URLSearchParams({
                 routeId: post.route.id,
-                dayIndex: String(dayIndex),
-                pointIndex: String(pointIndex),
+                dayIndex: String(post.dayIndex),
+                pointIndex: String(post.pointIndex),
                 city: post.city,
                 title: post.title,
               })
 
-              const photoUrls = [
-                `${API_BASE}/api/photos?${params.toString()}`,
-                `${API_BASE}/photos?${params.toString()}`,
-              ]
-
-              let found = false
-
-              for (const url of photoUrls) {
-                try {
-                  const resp = await withTimeout(
-                    url,
-                    {
-                      method: 'GET',
-                      headers: { Accept: 'application/json' },
-                    },
-                    12000
-                  )
-
-                  if (!resp.ok) continue
-
-                  const parsed = await safeJson(resp)
-                  if (!parsed.ok) continue
-
-                  const photos = extractPhotosFromApi(parsed.data)
-                  if (photos.length > 0) {
-                    collected.push(...photos)
-                    found = true
-                    break
-                  }
-                } catch (e) {
-                  console.error('place /photos error', url, e)
-                }
-              }
-
-              if (!found) {
-                const parseUrls = [`${API_BASE}/api/parse`, `${API_BASE}/parse`]
-
-                for (const url of parseUrls) {
-                  try {
-                    const resp = await withTimeout(
-                      url,
-                      {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          Accept: 'application/json',
-                        },
-                        body: JSON.stringify({
-                          routeId: post.route.id,
-                          dayIndex,
-                          pointIndex,
-                          city: post.city,
-                          title: post.title,
-                          limit: 6,
-                        }),
-                      },
-                      60000
-                    )
-
-                    if (!resp.ok) continue
-
-                    const parsed = await safeJson(resp)
-                    if (!parsed.ok) continue
-
-                    const photos = extractPhotosFromApi(parsed.data)
-                    if (photos.length > 0) {
-                      collected.push(...photos)
-                      break
-                    }
-                  } catch (e) {
-                    console.error('place /parse error', url, e)
-                  }
-                }
-              }
+              const backend = await fetchReadyPhotosFromBackend(params)
+              if (backend.length) imgs.push(...backend)
             } catch (e) {
               console.error('place backend images error', post.id, e)
             }
           }
 
-          const uniqPlaceImages = Array.from(new Set(collected.filter(Boolean)))
-          nextResolved[post.id] =
-            uniqPlaceImages.length > 0
-              ? uniqPlaceImages
+          result[post.id] =
+            imgs.length > 0
+              ? Array.from(new Set(imgs.filter(Boolean)))
               : getRouteFallbackImages(post.route)
+
           continue
         }
 
-        // Для обычного поста / moment: только фото самого поста
-        nextResolved[post.id] =
+        result[post.id] =
           post.images?.length > 0
             ? Array.from(new Set(post.images.filter(Boolean)))
             : post.image
@@ -744,11 +641,11 @@ export const FeedPage: React.FC<Props> = ({
       }
 
       if (!cancelled) {
-        setResolvedPostImages(nextResolved)
+        setResolvedPostImages(result)
       }
     }
 
-    loadImagesForPosts()
+    loadImages()
 
     return () => {
       cancelled = true
@@ -1059,7 +956,9 @@ export const FeedPage: React.FC<Props> = ({
 
             <div className="feed-post-stats">
               <div className="feed-post-stat">
-                <div className="feed-post-stat-value">{openedPost.likes + (isLiked ? 1 : 0)}</div>
+                <div className="feed-post-stat-value">
+                  {openedPost.likes + (isLiked ? 1 : 0)}
+                </div>
                 <div className="feed-post-stat-label">Лайков</div>
               </div>
 
@@ -1070,7 +969,9 @@ export const FeedPage: React.FC<Props> = ({
 
               <div className="feed-post-stat">
                 <div className="feed-post-stat-value">
-                  {typeof openedPost.distanceKm !== 'undefined' ? `~${openedPost.distanceKm} км` : '—'}
+                  {typeof openedPost.distanceKm !== 'undefined'
+                    ? `~${openedPost.distanceKm} км`
+                    : '—'}
                 </div>
                 <div className="feed-post-stat-label">Маршрут</div>
               </div>
@@ -1082,6 +983,13 @@ export const FeedPage: React.FC<Props> = ({
                 <div className="feed-post-stat-label">Сложность</div>
               </div>
             </div>
+
+            {openedPost.daysCount !== undefined && (
+              <div className="feed-post-meta-extra">
+                {openedPost.daysCount}{' '}
+                {declension('день', 'дня', 'дней', openedPost.daysCount)}
+              </div>
+            )}
 
             {openedPost.previewPoints.length > 0 && (
               <div className="feed-post-points">
