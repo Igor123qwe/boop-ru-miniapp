@@ -903,92 +903,103 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     return []
   }
 
-  const openPointModal = async (
-    route: PopularRoute,
-    dayTitle: string,
-    dayIndex: number,
-    point: {
-      title: string
-      time?: string
-      description?: string
-      images?: string[]
-    },
-    pointIndex: number
-  ) => {
-    const currentRequestId = ++pointRequestRef.current
-    const isExtra = pointIndex < 0
+  const initialImages = buildMergedImages(baseImages, cachedImages)
+setPointImages(initialImages)
 
-    const cacheKey = isExtra
-      ? `extra_${buildPointCacheKey(route.id, dayIndex, Math.abs(pointIndex), point.title)}`
-      : buildPointCacheKey(route.id, dayIndex, pointIndex, point.title)
+setWikiInfo({
+  loading: true,
+  error: false,
+  extract: null,
+  url: null,
+})
+setIsWikiVisible(true)
 
-    setActiveRoute(route)
-    setActivePoint({
-      routeId: route.id,
-      dayTitle,
-      dayIndex,
-      pointIndex,
-      point,
-    })
-    setActiveImageIndex(0)
-    setFailedPointImages({})
+if (isExtra) {
+  setIsPointImagesLoading(false)
+  return
+}
 
-    const baseImages = Array.isArray(point.images)
-      ? Array.from(new Set(point.images.filter(Boolean)))
-      : []
+const hasAnyKnownPhotos = initialImages.length > 0
 
-    const cachedImages = Array.from(
-      new Set((pointPhotosCache[cacheKey] ?? []).filter(Boolean))
-    )
+if (hasAnyKnownPhotos) {
+  setIsPointImagesLoading(false)
+  return
+}
 
-    const buildMergedImages = (...groups: string[][]) =>
-      Array.from(new Set(groups.flat().filter(Boolean)))
+setIsPointImagesLoading(true)
 
-    const initialImages = buildMergedImages(baseImages, cachedImages)
-    setPointImages(initialImages)
+const params = new URLSearchParams({
+  routeId: route.id,
+  dayIndex: String(dayIndex),
+  pointIndex: String(pointIndex),
+  city: route.city || cityTitle,
+  title: point.title || '',
+})
 
-    setWikiInfo({
-      loading: true,
-      error: false,
-      extract: null,
-      url: null,
-    })
-    setIsWikiVisible(true)
+try {
+  const cloudPhotos = await loadCloudPointImages(
+    cityFolder,
+    route.id,
+    dayIndex,
+    pointIndex,
+    point.title
+  )
 
-    if (isExtra) {
-      setIsPointImagesLoading(false)
-      return
-    }
+  if (pointRequestRef.current !== currentRequestId) return
 
-    const hasAnyKnownPhotos = initialImages.length > 0
-    setIsPointImagesLoading(!hasAnyKnownPhotos)
+  if (cloudPhotos.length > 0) {
+    const merged = buildMergedImages(baseImages, cachedImages, cloudPhotos)
 
-    const params = new URLSearchParams({
-      routeId: route.id,
-      dayIndex: String(dayIndex),
-      pointIndex: String(pointIndex),
-      city: route.city || cityTitle,
-      title: point.title || '',
-    })
+    setPointPhotosCache(prev => ({
+      ...prev,
+      [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], cloudPhotos),
+    }))
 
-    try {
-      const cloudPhotos = await loadCloudPointImages(
-        cityFolder,
-        route.id,
-        dayIndex,
-        pointIndex,
-        point.title
-      )
+    setPointImages(merged)
+    setIsPointImagesLoading(false)
+    return
+  }
 
-      if (pointRequestRef.current !== currentRequestId) return
+  const readyPhotos = await fetchPhotosFromBackend(params)
 
-      if (cloudPhotos.length > 0) {
-        const merged = buildMergedImages(baseImages, cachedImages, cloudPhotos)
+  if (pointRequestRef.current !== currentRequestId) return
 
-        setPointPhotosCache(prev => ({
-          ...prev,
-          [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], cloudPhotos),
-        }))
+  if (readyPhotos.length > 0) {
+    const merged = buildMergedImages(baseImages, cachedImages, readyPhotos)
+
+    setPointPhotosCache(prev => ({
+      ...prev,
+      [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], readyPhotos),
+    }))
+
+    setPointImages(merged)
+    setIsPointImagesLoading(false)
+    return
+  }
+
+  const parsedPhotos = await parsePhotosFromBackend(params)
+
+  if (pointRequestRef.current !== currentRequestId) return
+
+  if (parsedPhotos.length > 0) {
+    const merged = buildMergedImages(baseImages, cachedImages, parsedPhotos)
+
+    setPointPhotosCache(prev => ({
+      ...prev,
+      [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], parsedPhotos),
+    }))
+
+    setPointImages(merged)
+    setIsPointImagesLoading(false)
+    return
+  }
+
+  setIsPointImagesLoading(false)
+} catch (e) {
+  console.error('openPointModal photos load error', e)
+  if (pointRequestRef.current === currentRequestId) {
+    setIsPointImagesLoading(false)
+  }
 
         setPointImages(merged)
         setIsPointImagesLoading(false)
