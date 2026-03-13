@@ -191,6 +191,11 @@ const buildLegacyCloudPrefix = (
   return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}`
 }
 
+const buildPlacesCloudPrefix = (cityFolder: string, title?: string): string => {
+  const pointSlug = buildPointSlug(title, 'point')
+  return `${CLOUD_BASE_URL}/${cityFolder}/places/${pointSlug}`
+}
+
 const probeImageUrl = (url: string): Promise<boolean> => {
   return new Promise(resolve => {
     const img = new Image()
@@ -230,10 +235,31 @@ const loadCloudPointImages = async (
   return legacyUrls
 }
 
+const loadCloudPlaceImages = async (
+  cityFolder: string,
+  title?: string
+): Promise<string[]> => {
+  const urls: string[] = []
+  const prefix = buildPlacesCloudPrefix(cityFolder, title)
+
+  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
+    const url = `${prefix}/image-${i}.jpg`
+    const ok = await probeImageUrl(url)
+    if (ok) urls.push(url)
+  }
+
+  return urls
+}
+
 const extractPhotosFromApi = (data: any): string[] => {
   if (!data || typeof data !== 'object') return []
 
-  const candidates: unknown[] = [data.photos, data.publicUrls, data.urls, data.images]
+  const candidates: unknown[] = [
+    data.photos,
+    data.publicUrls,
+    data.urls,
+    data.images,
+  ]
 
   for (const c of candidates) {
     if (Array.isArray(c)) {
@@ -536,6 +562,17 @@ export const FeedPage: React.FC<Props> = ({
               }
 
               try {
+                const placeCloud = await loadCloudPlaceImages(post.cityFolder, point.title)
+                if (placeCloud.length > 0) {
+                  collected.push(...placeCloud)
+                  if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
+                  continue
+                }
+              } catch (e) {
+                console.error('route place-cloud images error', post.id, point.title, e)
+              }
+
+              try {
                 const cloud = await loadCloudPointImages(
                   post.cityFolder,
                   post.route.id,
@@ -590,6 +627,15 @@ export const FeedPage: React.FC<Props> = ({
 
           if (post.images?.length) {
             imgs.push(...post.images)
+          }
+
+          if (!imgs.length) {
+            try {
+              const placeCloud = await loadCloudPlaceImages(post.cityFolder, post.title)
+              if (placeCloud.length) imgs.push(...placeCloud)
+            } catch (e) {
+              console.error('place place-cloud images error', post.id, e)
+            }
           }
 
           if (!imgs.length && post.dayIndex !== undefined && post.pointIndex !== undefined) {
