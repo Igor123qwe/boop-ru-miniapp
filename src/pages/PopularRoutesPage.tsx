@@ -214,36 +214,28 @@ const probeImageUrl = (url: string): Promise<boolean> => {
   })
 }
 
-const filterWorkingImages = async (urls: string[]): Promise<string[]> => {
-  const unique = Array.from(new Set(urls.filter(Boolean)))
-  if (unique.length === 0) return []
-
-  const checks = await Promise.all(
-    unique.map(async url => ({
-      url,
-      ok: await probeImageUrl(url),
-    }))
-  )
-
-  return checks.filter(item => item.ok).map(item => item.url)
+const dedupeImages = (urls: string[]): string[] => {
+  return Array.from(new Set(urls.filter(Boolean)))
 }
 
 const loadImagesByPrefix = async (prefix: string): Promise<string[]> => {
-  const urls: string[] = []
+  const checks = Array.from({ length: MAX_CLOUD_POINT_IMAGES }, (_, index) => {
+    const i = index + 1
 
-  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    for (const ext of CLOUD_IMAGE_EXTENSIONS) {
-      const url = `${prefix}/image-${i}.${ext}`
-      const ok = await probeImageUrl(url)
+    return Promise.all(
+      CLOUD_IMAGE_EXTENSIONS.map(async ext => {
+        const url = `${prefix}/image-${i}.${ext}`
+        const ok = await probeImageUrl(url)
+        return ok ? url : null
+      })
+    )
+  })
 
-      if (ok) {
-        urls.push(url)
-        break
-      }
-    }
-  }
+  const results = await Promise.all(checks)
 
-  return urls
+  return results
+    .map(group => group.find(Boolean))
+    .filter(Boolean) as string[]
 }
 
 const loadCloudPointImages = async (
@@ -819,24 +811,26 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setIsWikiVisible(true)
 
     const baseImages = Array.isArray(point.images)
-      ? Array.from(new Set(point.images.filter(Boolean)))
+      ? dedupeImages(point.images)
       : []
 
-    const cachedImages = Array.from(new Set((pointPhotosCache[cacheKey] ?? []).filter(Boolean)))
+    const cachedImages = dedupeImages(pointPhotosCache[cacheKey] ?? [])
 
-    const buildMergedImages = (...groups: string[][]) =>
-      Array.from(new Set(groups.flat().filter(Boolean)))
+    const buildMergedImages = (...groups: string[][]) => dedupeImages(groups.flat())
 
-    if (isExtra) {
-      const extraImages = await filterWorkingImages(buildMergedImages(baseImages, cachedImages))
+    const immediateImages = buildMergedImages(baseImages, cachedImages)
 
-      if (pointRequestRef.current !== currentRequestId) return
-
-      setPointImages(extraImages)
+    if (immediateImages.length > 0) {
+      setPointImages(immediateImages)
       setPointPhotosCache(prev => ({
         ...prev,
-        [cacheKey]: extraImages,
+        [cacheKey]: immediateImages,
       }))
+      setIsPointImagesLoading(false)
+      return
+    }
+
+    if (isExtra) {
       setIsPointImagesLoading(false)
       return
     }
@@ -844,22 +838,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setIsPointImagesLoading(true)
 
     try {
-      const knownWorkingImages = await filterWorkingImages(
-        buildMergedImages(baseImages, cachedImages)
-      )
-
-      if (pointRequestRef.current !== currentRequestId) return
-
-      if (knownWorkingImages.length > 0) {
-        setPointImages(knownWorkingImages)
-        setPointPhotosCache(prev => ({
-          ...prev,
-          [cacheKey]: knownWorkingImages,
-        }))
-        setIsPointImagesLoading(false)
-        return
-      }
-
       const cloudPhotos = await loadCloudPointImages(
         cityFolder,
         route.id,
@@ -870,25 +848,14 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
       if (pointRequestRef.current !== currentRequestId) return
 
-      if (cloudPhotos.length > 0) {
-        const workingCloudPhotos = await filterWorkingImages(cloudPhotos)
-        const merged = buildMergedImages(knownWorkingImages, workingCloudPhotos)
-
-        setPointPhotosCache(prev => ({
-          ...prev,
-          [cacheKey]: buildMergedImages(prev[cacheKey] ?? [], workingCloudPhotos),
-        }))
-
-        setPointImages(merged)
-        setIsPointImagesLoading(false)
-        return
-      }
+      const merged = buildMergedImages(cloudPhotos)
 
       setPointPhotosCache(prev => ({
         ...prev,
-        [cacheKey]: [],
+        [cacheKey]: merged,
       }))
-      setPointImages([])
+
+      setPointImages(merged)
       setIsPointImagesLoading(false)
     } catch (e) {
       console.error('openPointModal photos load error', e)
