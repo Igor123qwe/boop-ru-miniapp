@@ -130,7 +130,6 @@ const declension = (
 const getDefaultApiBase = (): string => {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname
-
     if (host === 'localhost' || host === '127.0.0.1') {
       return 'http://localhost:4000'
     }
@@ -178,21 +177,39 @@ const slugify = (value: string): string => {
     .replace(/_+/g, '_')
 }
 
-const buildPlaceSlug = (title?: string, fallback = 'place'): string => {
+const buildPointSlug = (title?: string, fallback = 'point'): string => {
   const clean = cleanupPlaceTitle(title || '')
   const slug = slugify(clean)
   return slug || fallback
 }
 
-const buildPlaceCacheKey = (city: string, title?: string): string => {
-  const cityKey = slugify(normalizeCityFolder(city || 'city'))
-  const placeSlug = buildPlaceSlug(title, 'place')
-  return `${cityKey}_${placeSlug}`
+const buildPointCacheKey = (
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
+): string => {
+  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
+  return `${routeId}_${dayIndex}_${pointIndex}_${pointSlug}`
 }
 
-const buildPlaceCloudPrefix = (cityFolder: string, title?: string): string => {
-  const placeSlug = buildPlaceSlug(title, 'place')
-  return `${CLOUD_BASE_URL}/${cityFolder}/places/${placeSlug}`
+const buildExactCloudPrefix = (
+  cityFolder: string,
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
+): string => {
+  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
+  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/day_${dayIndex}/point_${pointIndex}_${pointSlug}`
+}
+
+const buildLegacyCloudPrefix = (
+  cityFolder: string,
+  routeId: string,
+  pointIndex: number
+): string => {
+  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}`
 }
 
 const probeImageUrl = (url: string): Promise<boolean> => {
@@ -206,18 +223,32 @@ const probeImageUrl = (url: string): Promise<boolean> => {
 
 const loadCloudPointImages = async (
   cityFolder: string,
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
   title?: string
 ): Promise<string[]> => {
-  const urls: string[] = []
-  const prefix = buildPlaceCloudPrefix(cityFolder, title)
+  const exactUrls: string[] = []
+  const exactPrefix = buildExactCloudPrefix(cityFolder, routeId, dayIndex, pointIndex, title)
 
   for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
-    const url = `${prefix}/image-${i}.jpg`
+    const url = `${exactPrefix}/image-${i}.jpg`
     const ok = await probeImageUrl(url)
-    if (ok) urls.push(url)
+    if (ok) exactUrls.push(url)
   }
 
-  return urls
+  if (exactUrls.length > 0) return exactUrls
+
+  const legacyUrls: string[] = []
+  const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
+
+  for (let i = 1; i <= MAX_CLOUD_POINT_IMAGES; i++) {
+    const url = `${legacyPrefix}/image-${i}.jpg`
+    const ok = await probeImageUrl(url)
+    if (ok) legacyUrls.push(url)
+  }
+
+  return legacyUrls
 }
 
 const extractPhotosFromApi = (data: any): string[] => {
@@ -371,7 +402,6 @@ const buildWikiCandidates = (
 ): string[] => {
   const title = normalizeText(rawTitle)
   const city = normalizeText(cityTitle)
-
   const cleaned = cleanupPlaceTitle(title)
 
   const aliasMap: Record<string, string[]> = {
@@ -525,16 +555,19 @@ const saveTripToLocalStorage = (trip: SavedTrip): void => {
   localStorage.setItem(LOCAL_TRIPS_KEY, JSON.stringify(current))
 }
 
-const withTimeout = async (input: RequestInfo | URL, init?: RequestInit, timeoutMs = 30000) => {
+const withTimeout = async (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = 30000
+) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const res = await fetch(input, {
+    return await fetch(input, {
       ...init,
       signal: controller.signal,
     })
-    return res
   } finally {
     clearTimeout(timer)
   }
@@ -542,7 +575,6 @@ const withTimeout = async (input: RequestInfo | URL, init?: RequestInit, timeout
 
 const safeJson = async (res: Response) => {
   const text = await res.text()
-
   try {
     return {
       ok: true,
@@ -556,10 +588,6 @@ const safeJson = async (res: Response) => {
       text,
     }
   }
-}
-
-const debugLog = (...args: any[]) => {
-  console.log('[PopularRoutesPage]', ...args)
 }
 
 export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteId }) => {
@@ -578,7 +606,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
   const cityCoverUrl = getCityCoverUrl(cityFolder)
 
   const [activeRoute, setActiveRoute] = useState<PopularRoute | null>(null)
-
   const [sortMode, setSortMode] = useState<SortMode>('popularity')
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all')
 
@@ -625,10 +652,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     () => pointImages.filter(img => !failedPointImages[img]),
     [pointImages, failedPointImages]
   )
-
-  useEffect(() => {
-    debugLog('API_BASE =', API_BASE)
-  }, [])
 
   useEffect(() => {
     if (!activeRoute) {
@@ -691,9 +714,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
   useEffect(() => {
     const shouldLock = !!activePoint || !!zoomedImage
     const prevOverflow = document.body.style.overflow
+
     if (shouldLock) {
       document.body.style.overflow = 'hidden'
     }
+
     return () => {
       document.body.style.overflow = prevOverflow
     }
@@ -777,6 +802,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
   const totalPlacesCount = visiblePlaces.length
   const totalRoutesCount = routes.length
+
   const totalUniquePoints = useMemo(() => {
     const set = new Set<string>()
     routes.forEach(route => {
@@ -799,94 +825,55 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setZoomedImageTitle('')
   }
 
-  const pingBackend = async () => {
-    const candidates = [
-      `${API_BASE}/health`,
-      `${API_BASE}/api/health`,
-    ]
-
-    for (const url of candidates) {
-      try {
-        debugLog('health check ->', url)
-        const res = await withTimeout(url, { method: 'GET' }, 8000)
-        if (res.ok) {
-          debugLog('health ok ->', url)
-          return true
-        }
-      } catch (e) {
-        debugLog('health failed ->', url, e)
-      }
-    }
-
-    return false
-  }
-
   const fetchPhotosFromBackend = async (
-    city: string,
-    title: string,
-    limit = 6
+    params: URLSearchParams,
+    forceParse = false
   ): Promise<string[]> => {
-    debugLog('fetchPhotosFromBackend:start', { city, title, limit, API_BASE })
-
-    const backendAlive = await pingBackend()
-    debugLog('backendAlive =', backendAlive)
-
-    const params = new URLSearchParams({
-      city,
-      title,
-    })
-
-    const getUrls = [
+    const photosUrls = [
       `${API_BASE}/api/photos?${params.toString()}`,
       `${API_BASE}/photos?${params.toString()}`,
     ]
 
-    for (const url of getUrls) {
-      try {
-        debugLog('GET photos ->', url)
-
-        const resp = await withTimeout(
-          url,
-          {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
+    if (!forceParse) {
+      for (const url of photosUrls) {
+        try {
+          const resp = await withTimeout(
+            url,
+            {
+              method: 'GET',
+              headers: { Accept: 'application/json' },
             },
-          },
-          20000
-        )
+            15000
+          )
 
-        const parsed = await safeJson(resp)
+          if (!resp.ok) continue
 
-        debugLog('GET photos response', {
-          url,
-          status: resp.status,
-          ok: resp.ok,
-          jsonOk: parsed.ok,
-          data: parsed.data,
-          text: parsed.text?.slice(0, 500),
-        })
+          const parsed = await safeJson(resp)
+          if (!parsed.ok) continue
 
-        if (!resp.ok || !parsed.ok) continue
-
-        const existingPhotos = extractPhotosFromApi(parsed.data)
-
-        if (existingPhotos.length > 0) {
-          debugLog('photos found from existing api', existingPhotos)
-          return existingPhotos
+          const remotePhotos = extractPhotosFromApi(parsed.data)
+          if (remotePhotos.length > 0) {
+            return remotePhotos
+          }
+        } catch (e) {
+          console.error('photos api error', url, e)
         }
-      } catch (e) {
-        console.error('photos api error', url, e)
       }
     }
 
-    const parseUrls = [`${API_BASE}/parse`, `${API_BASE}/api/parse`]
+    const parsePayload = {
+      routeId: params.get('routeId') || undefined,
+      dayIndex: params.get('dayIndex') || undefined,
+      pointIndex: params.get('pointIndex') || undefined,
+      city: params.get('city') || undefined,
+      title: params.get('title') || undefined,
+      limit: 6,
+    }
+
+    const parseUrls = [`${API_BASE}/api/parse`, `${API_BASE}/parse`]
 
     for (const url of parseUrls) {
       try {
-        const payload = { city, title, limit }
-        debugLog('POST parse ->', url, payload)
-
         const resp = await withTimeout(
           url,
           {
@@ -895,36 +882,25 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
               'Content-Type': 'application/json',
               Accept: 'application/json',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(parsePayload),
           },
           60000
         )
 
+        if (!resp.ok) continue
+
         const parsed = await safeJson(resp)
+        if (!parsed.ok) continue
 
-        debugLog('POST parse response', {
-          url,
-          status: resp.status,
-          ok: resp.ok,
-          jsonOk: parsed.ok,
-          data: parsed.data,
-          text: parsed.text?.slice(0, 500),
-        })
-
-        if (!resp.ok || !parsed.ok) continue
-
-        const parsedPhotos = extractPhotosFromApi(parsed.data)
-
-        if (parsedPhotos.length > 0) {
-          debugLog('photos parsed fresh', parsedPhotos)
-          return parsedPhotos
+        const remotePhotos = extractPhotosFromApi(parsed.data)
+        if (remotePhotos.length > 0) {
+          return remotePhotos
         }
       } catch (e) {
         console.error('parse api error', url, e)
       }
     }
 
-    debugLog('fetchPhotosFromBackend:end -> empty')
     return []
   }
 
@@ -941,16 +917,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     pointIndex: number
   ) => {
     const currentRequestId = ++pointRequestRef.current
-    const placeCacheKey = buildPlaceCacheKey(route.city || cityTitle, point.title)
+    const isExtra = pointIndex < 0
 
-    debugLog('openPointModal', {
-      routeId: route.id,
-      dayTitle,
-      dayIndex,
-      pointIndex,
-      pointTitle: point.title,
-      placeCacheKey,
-    })
+    const cacheKey = isExtra
+      ? `extra_${buildPointCacheKey(route.id, dayIndex, Math.abs(pointIndex), point.title)}`
+      : buildPointCacheKey(route.id, dayIndex, pointIndex, point.title)
 
     setActiveRoute(route)
     setActivePoint({
@@ -965,7 +936,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setFailedPointImages({})
 
     const baseImages = Array.isArray(point.images) ? point.images : []
-    const cached = pointPhotosCache[placeCacheKey] ?? []
+    const cached = pointPhotosCache[cacheKey] ?? []
 
     const buildImages = (extra: string[] = []) => {
       const all = [...baseImages, ...extra]
@@ -973,7 +944,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     }
 
     if (cached.length > 0) {
-      debugLog('using cached photos', cached)
       setPointImages(buildImages(cached))
       setIsPointImagesLoading(false)
     } else {
@@ -991,22 +961,34 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     })
     setIsWikiVisible(true)
 
+    if (isExtra) {
+      if (baseImages.length === 0 && cached.length === 0) {
+        setIsPointImagesLoading(false)
+      }
+      return
+    }
+
     if (cached.length > 0) {
       return
     }
 
-    const normalizedCity = route.city || cityTitle
-    const normalizedTitle = cleanupPlaceTitle(point.title || '')
+    const params = new URLSearchParams({
+      routeId: route.id,
+      dayIndex: String(dayIndex),
+      pointIndex: String(pointIndex),
+      city: route.city || cityTitle,
+      title: point.title || '',
+    })
 
     try {
-      const remotePhotos = await fetchPhotosFromBackend(normalizedCity, normalizedTitle, 6)
+      const remotePhotos = await fetchPhotosFromBackend(params, false)
 
       if (pointRequestRef.current !== currentRequestId) return
 
       if (remotePhotos.length > 0) {
         setPointPhotosCache(prev => ({
           ...prev,
-          [placeCacheKey]: remotePhotos,
+          [cacheKey]: remotePhotos,
         }))
 
         setPointImages(prev => {
@@ -1020,11 +1002,31 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       console.error('backend point photos load error', e)
     }
 
-    loadCloudPointImages(normalizeCityFolder(route.city || cityTitle), point.title)
+    try {
+      const parsedPhotos = await fetchPhotosFromBackend(params, true)
+
+      if (pointRequestRef.current !== currentRequestId) return
+
+      if (parsedPhotos.length > 0) {
+        setPointPhotosCache(prev => ({
+          ...prev,
+          [cacheKey]: parsedPhotos,
+        }))
+
+        setPointImages(prev => {
+          const all = [...prev, ...parsedPhotos]
+          return Array.from(new Set(all.filter(Boolean)))
+        })
+        setIsPointImagesLoading(false)
+        return
+      }
+    } catch (e) {
+      console.error('backend parse point photos error', e)
+    }
+
+    loadCloudPointImages(cityFolder, route.id, dayIndex, pointIndex, point.title)
       .then(cloudPhotos => {
         if (pointRequestRef.current !== currentRequestId) return
-
-        debugLog('cloud photos result', cloudPhotos)
 
         if (!cloudPhotos || cloudPhotos.length === 0) {
           if (baseImages.length === 0) {
@@ -1034,11 +1036,11 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         }
 
         setPointPhotosCache(prev => {
-          const prevCached = prev[placeCacheKey] ?? []
+          const prevCached = prev[cacheKey] ?? []
           const merged = Array.from(new Set([...prevCached, ...cloudPhotos]))
           return {
             ...prev,
-            [placeCacheKey]: merged,
+            [cacheKey]: merged,
           }
         })
 
@@ -1062,11 +1064,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       city: cityTitle,
     }
 
-    const data = JSON.stringify(payload)
-    debugLog('sendData create custom route', payload)
-
     if (webApp?.sendData) {
-      webApp.sendData(data)
+      webApp.sendData(JSON.stringify(payload))
     } else {
       alert(
         'Мы отправим данные в ProGid, когда вы будете использовать мини-приложение внутри Telegram.'
@@ -1080,11 +1079,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       city: cityTitle,
     }
 
-    const data = JSON.stringify(payload)
-    debugLog('sendData ai route', payload)
-
     if (webApp?.sendData) {
-      webApp.sendData(data)
+      webApp.sendData(JSON.stringify(payload))
     } else {
       alert('Функция доступна внутри Telegram-мини-приложения.')
     }
@@ -1105,11 +1101,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       pointTime: activePoint.point.time ?? null,
     }
 
-    const data = JSON.stringify(payload)
-    debugLog('sendData add place photo', payload)
-
     if (webApp?.sendData) {
-      webApp.sendData(data)
+      webApp.sendData(JSON.stringify(payload))
     } else {
       alert(
         'Мы отправили запрос боту. Просто прикрепите фото этого места в чат — мы добавим его к маршруту.'
@@ -1133,11 +1126,13 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       const dayExtras = prev[dayIndex] ?? []
       const newExtras = dayExtras.filter((_, idx) => idx !== extraIndex)
       const next: Record<number, RoutePoint[]> = { ...prev }
+
       if (newExtras.length === 0) {
         delete next[dayIndex]
       } else {
         next[dayIndex] = newExtras
       }
+
       return next
     })
   }
@@ -1157,8 +1152,9 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       const dayExtras = prev[dayIndex] ?? []
       const exists = dayExtras.some(
         item =>
-          buildPlaceCacheKey(activeRoute.city || cityTitle, item.title) ===
-          buildPlaceCacheKey(place.route.city || cityTitle, newPoint.title)
+          item.title === newPoint.title &&
+          item.time === newPoint.time &&
+          item.description === newPoint.description
       )
 
       if (exists) return prev
@@ -1365,8 +1361,6 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
       extraPoints,
       savedAt: now,
     }
-
-    debugLog('sendData save_route_to_trips', payload)
 
     if (webApp?.sendData) {
       webApp.sendData(JSON.stringify(payload))
