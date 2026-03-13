@@ -46,7 +46,6 @@ const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images-novichihin'
 
-const MAX_PLACE_BASE_IMAGES = 8
 const MAX_ROUTE_FEED_IMAGES = 20
 
 const normalizeText = (value?: string): string => {
@@ -138,60 +137,47 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
-const slugify = (value: string): string => {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/ё/g, 'е')
-    .replace(/№/g, ' ')
-    .replace(/["'«»]/g, '')
-    .replace(/[^a-zа-я0-9]+/gi, '_')
-    .replace(/^_+|_+$/g, '')
-    .replace(/_+/g, '_')
+const dedupeImages = (images: string[]): string[] => {
+  return Array.from(
+    new Set(
+      images
+        .map(img => String(img || '').trim())
+        .filter(Boolean)
+    )
+  )
 }
 
-const cleanupPlaceTitle = (title: string): string => {
-  return title
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
-    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
-    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
-    .replace(/^Переезд\s+в\s+/i, '')
-    .replace(/^Прогулка\s+по\s+/i, '')
-    .replace(/^Посещение\s+/i, '')
-    .replace(/^Осмотр\s+/i, '')
-    .trim()
-}
-
-const buildPointSlug = (title?: string, fallback = 'point'): string => {
-  const clean = cleanupPlaceTitle(title || '')
-  const slug = slugify(clean)
-  return slug || fallback
-}
-
-const buildPlaceBaseImages = (
-  cityFolder: string,
-  title?: string,
-  limit = MAX_PLACE_BASE_IMAGES
-): string[] => {
-  const slug = buildPointSlug(title, 'point')
-  const result: string[] = []
-
-  for (let i = 1; i <= limit; i++) {
-    result.push(`${CLOUD_BASE_URL}/${cityFolder}/places/${slug}/image-${i}.jpg`)
-  }
-
-  return result
+const getCityCoverImage = (city: string): string => {
+  const cityFolder = normalizeCityFolder(city || '')
+  return `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
 }
 
 const getRouteOwnImages = (route: PopularRoute): string[] => {
   const imgs: string[] = []
 
-  if ((route as any).coverImage) imgs.push((route as any).coverImage as string)
-  if (Array.isArray((route as any).images)) imgs.push(...((route as any).images as string[]))
+  if ((route as any).coverImage) {
+    imgs.push((route as any).coverImage as string)
+  }
 
-  return Array.from(new Set(imgs.filter(Boolean)))
+  if (Array.isArray((route as any).images)) {
+    imgs.push(...((route as any).images as string[]))
+  }
+
+  return dedupeImages(imgs)
+}
+
+const getAllPointImagesFromRoute = (route: PopularRoute): string[] => {
+  const imgs: string[] = []
+
+  for (const day of route.days) {
+    for (const point of day.points) {
+      if (Array.isArray(point.images) && point.images.length > 0) {
+        imgs.push(...point.images.filter(Boolean))
+      }
+    }
+  }
+
+  return dedupeImages(imgs)
 }
 
 const getPointOwnImages = (
@@ -204,45 +190,20 @@ const getPointOwnImages = (
   const point = route.days?.[dayIndex]?.points?.[pointIndex]
   if (!point || !Array.isArray(point.images)) return []
 
-  return Array.from(new Set(point.images.filter(Boolean)))
-}
-
-const getRouteFallbackImages = (route: PopularRoute): string[] => {
-  const own = getRouteOwnImages(route)
-  if (own.length) return own
-
-  const city = normalizeCityFolder(route.city || '')
-  return [`${CLOUD_BASE_URL}/${city}/city-cover.jpg`]
+  return dedupeImages(point.images)
 }
 
 const getRouteFeedImages = (route: PopularRoute): string[] => {
-  const collected: string[] = []
+  const routeImages = getRouteOwnImages(route)
+  const pointImages = getAllPointImagesFromRoute(route)
 
-  collected.push(...getRouteOwnImages(route))
+  const merged = dedupeImages([...routeImages, ...pointImages])
 
-  const cityFolder = normalizeCityFolder(route.city || '')
-
-  for (const day of route.days) {
-    for (const point of day.points) {
-      if (!point?.title?.trim()) continue
-      if (isUtilityPoint(point.title)) continue
-
-      if (Array.isArray(point.images) && point.images.length > 0) {
-        collected.push(...point.images.filter(Boolean))
-      } else {
-        collected.push(...buildPlaceBaseImages(cityFolder, point.title, 3))
-      }
-
-      if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
-    }
-
-    if (collected.length >= MAX_ROUTE_FEED_IMAGES) break
+  if (merged.length > 0) {
+    return merged.slice(0, MAX_ROUTE_FEED_IMAGES)
   }
 
-  const uniq = Array.from(new Set(collected.filter(Boolean)))
-  if (uniq.length > 0) return uniq.slice(0, MAX_ROUTE_FEED_IMAGES)
-
-  return getRouteFallbackImages(route)
+  return [getCityCoverImage(route.city || '')]
 }
 
 const getPlaceFeedImages = (
@@ -253,20 +214,13 @@ const getPlaceFeedImages = (
   const pointImages = getPointOwnImages(route, dayIndex, pointIndex)
   if (pointImages.length > 0) return pointImages
 
-  const point = dayIndex !== undefined && pointIndex !== undefined
-    ? route.days?.[dayIndex]?.points?.[pointIndex]
-    : undefined
-
-  const cityFolder = normalizeCityFolder(route.city || '')
-
-  if (point?.title?.trim()) {
-    return buildPlaceBaseImages(cityFolder, point.title)
-  }
-
   const routeImages = getRouteOwnImages(route)
   if (routeImages.length > 0) return routeImages
 
-  return getRouteFallbackImages(route)
+  const routePointImages = getAllPointImagesFromRoute(route)
+  if (routePointImages.length > 0) return routePointImages
+
+  return [getCityCoverImage(route.city || '')]
 }
 
 const buildRouteSemanticKey = (route: PopularRoute): string => {
