@@ -174,8 +174,37 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
+const resolveImageUrl = (url?: string): string => {
+  const value = String(url || '').trim()
+  if (!value) return ''
+
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('data:image/')
+  ) {
+    return value
+  }
+
+  if (value.startsWith('//')) {
+    return `https:${value}`
+  }
+
+  if (value.startsWith('/')) {
+    return `${API_BASE_URL}${value}`
+  }
+
+  return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
+}
+
 const dedupeImages = (images: string[]): string[] => {
-  return Array.from(new Set(images.map(img => String(img || '').trim()).filter(Boolean)))
+  return Array.from(
+    new Set(
+      images
+        .map(img => resolveImageUrl(img))
+        .filter(Boolean)
+    )
+  )
 }
 
 const createPlaceholderImage = (title: string, subtitle?: string): string => {
@@ -561,12 +590,12 @@ export const FeedPage: React.FC<Props> = ({
             const placeResult = await getPlacePhotosCached(post.city, post.title)
             if (cancelled) return post
 
-            const sqlImages = placeResult?.images || []
+            const sqlImages = dedupeImages(placeResult?.images || [])
 
             const finalImages = dedupeImages([
-              ...sqlImages,
               ...post.images,
               post.image,
+              ...sqlImages,
             ])
 
             return {
@@ -582,14 +611,14 @@ export const FeedPage: React.FC<Props> = ({
             const routeResult = await getRoutePhotosCached(post.route)
             if (cancelled) return post
 
-            const sqlImages = routeResult?.images || []
+            const sqlImages = dedupeImages(routeResult?.images || [])
             const routePointImages = getAllPointImagesFromRoute(post.route)
 
             const finalImages = dedupeImages([
-              ...sqlImages,
               ...post.images,
               ...routePointImages,
               post.image,
+              ...sqlImages,
             ]).slice(0, MAX_ROUTE_FEED_IMAGES)
 
             return {
