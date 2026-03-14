@@ -20,37 +20,49 @@ type FeedPost = {
   id: string
   type: FeedPostType
   routeId: string
+  placeId?: string
+  cityId?: string
   city: string
-  cityFolder?: string
+  cityFolder: string
   title: string
   description: string
   image: string
   images: string[]
   likes: number
+  commentsCount?: number
+  savesCount?: number
   daysCount?: number
   pointsCount?: number
   difficulty?: string
   distanceKm?: number
   previewPoints: string[]
   createdAt: string
+  publishedAt?: string
+  authorId?: string
+  authorName?: string
   dayTitle?: string
   dayIndex?: number
   pointIndex?: number
+  score?: number
 }
 
-type FeedResponse = {
+type FeedApiResponse = {
   ok: boolean
   items: FeedPost[]
-  limit: number
-  offset: number
-  count: number
-  error?: string
-  details?: string
+  limit?: number
+  offset?: number
+  count?: number
+  hasMore?: boolean
+  nextOffset?: number | null
 }
 
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'http://localhost:3000'
+
+const normalizeText = (value?: string): string => {
+  return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
 
 const declension = (
   one: string,
@@ -72,8 +84,38 @@ const routeDifficultyLabel = (difficulty?: string): string => {
   return 'Лёгкий'
 }
 
-const dedupeImages = (images: string[]): string[] =>
-  Array.from(new Set(images.filter(Boolean)))
+const resolveImageUrl = (url?: string): string => {
+  const value = String(url || '').trim()
+  if (!value) return ''
+
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('data:image/')
+  ) {
+    return value
+  }
+
+  if (value.startsWith('//')) {
+    return `https:${value}`
+  }
+
+  if (value.startsWith('/')) {
+    return `${API_BASE_URL}${value}`
+  }
+
+  return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
+}
+
+const dedupeImages = (images: string[]): string[] => {
+  return Array.from(
+    new Set(
+      images
+        .map(img => resolveImageUrl(img))
+        .filter(Boolean)
+    )
+  )
+}
 
 const createPlaceholderImage = (title: string, subtitle?: string): string => {
   const safeTitle = (title || 'Маршрут')
@@ -109,6 +151,50 @@ const createPlaceholderImage = (title: string, subtitle?: string): string => {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
+const normalizeFeedPost = (post: FeedPost): FeedPost => {
+  const normalizedImages = dedupeImages([
+    ...(Array.isArray(post.images) ? post.images : []),
+    post.image || '',
+  ])
+
+  const fallbackSubtitle =
+    post.type === 'route' ? `${post.city} · маршрут` : post.city
+
+  return {
+    ...post,
+    routeId: post.routeId || '',
+    city: post.city || '',
+    cityFolder: post.cityFolder || '',
+    title: post.title || 'Без названия',
+    description: post.description || '',
+    image:
+      normalizedImages[0] ||
+      createPlaceholderImage(post.title || 'Без названия', fallbackSubtitle),
+    images: normalizedImages,
+    previewPoints: Array.isArray(post.previewPoints) ? post.previewPoints : [],
+    likes: Number(post.likes || 0),
+  }
+}
+
+async function fetchFeed(): Promise<FeedPost[]> {
+  const url = new URL(`${API_BASE_URL}/api/feed`)
+  url.searchParams.set('limit', '50')
+  url.searchParams.set('offset', '0')
+
+  const res = await fetch(url.toString())
+  if (!res.ok) {
+    throw new Error(`Feed request failed: ${res.status}`)
+  }
+
+  const data = (await res.json()) as FeedApiResponse
+
+  if (!data.ok) {
+    throw new Error('Feed API returned ok=false')
+  }
+
+  return Array.isArray(data.items) ? data.items.map(normalizeFeedPost) : []
+}
+
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onCreateRoute,
@@ -118,9 +204,10 @@ export const FeedPage: React.FC<Props> = ({
   const [likedPostIds, setLikedPostIds] = useState<string[]>([])
   const [savedPostIds, setSavedPostIds] = useState<string[]>([])
   const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [openedPost, setOpenedPost] = useState<FeedPost | null>(null)
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
-  const [isLoadingFeed, setIsLoadingFeed] = useState(true)
+  const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true)
   const [feedError, setFeedError] = useState<string>('')
 
   useEffect(() => {
@@ -142,40 +229,24 @@ export const FeedPage: React.FC<Props> = ({
     let cancelled = false
 
     const loadFeed = async () => {
+      setIsLoadingFeed(true)
+      setFeedError('')
+
       try {
-        setIsLoadingFeed(true)
-        setFeedError('')
-
-        const res = await fetch(`${API_BASE_URL}/api/feed?limit=50`)
-        const data = (await res.json()) as FeedResponse
-
-        if (!res.ok || !data.ok) {
-          throw new Error(data.details || data.error || 'feed_load_failed')
+        const items = await fetchFeed()
+        if (!cancelled) {
+          setFeedPosts(items)
         }
-
-        if (cancelled) return
-
-        const normalized = (data.items || []).map(post => {
-          const images = dedupeImages(post.images || [])
-          const image =
-            post.image ||
-            images[0] ||
-            createPlaceholderImage(post.title, post.city)
-
-          return {
-            ...post,
-            image,
-            images,
-          }
-        })
-
-        setFeedPosts(normalized)
       } catch (error) {
-        if (cancelled) return
-        console.error('Feed load error', error)
-        setFeedError('Не удалось загрузить ленту')
+        console.error('Feed load error:', error)
+        if (!cancelled) {
+          setFeedPosts([])
+          setFeedError('Не удалось загрузить ленту')
+        }
       } finally {
-        if (!cancelled) setIsLoadingFeed(false)
+        if (!cancelled) {
+          setIsLoadingFeed(false)
+        }
       }
     }
 
@@ -213,7 +284,10 @@ export const FeedPage: React.FC<Props> = ({
       post.images?.length ? post.images : post.image ? [post.image] : []
     )
 
-    if (source.length > 0) return source
+    const visible = source.filter(img => !failedImages[`${post.id}_${img}`])
+
+    if (visible.length > 0) return visible
+
     return [createPlaceholderImage(post.title, post.city)]
   }
 
@@ -254,16 +328,15 @@ export const FeedPage: React.FC<Props> = ({
     }))
   }
 
-  const sortedFeed = useMemo(() => {
-    return [...feedPosts].sort((a, b) => {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    })
+  const visibleFeedPosts = useMemo(() => {
+    return feedPosts
   }, [feedPosts])
 
   const renderCard = (post: FeedPost) => {
     const visibleImages = getVisibleImages(post)
     const currentImageIndex = getPostImageIndex(post.id, visibleImages.length)
     const currentImage = visibleImages[currentImageIndex] || ''
+
     const isLiked = likedPostIds.includes(post.id)
     const isSaved = savedPostIds.includes(post.id)
 
@@ -298,9 +371,11 @@ export const FeedPage: React.FC<Props> = ({
             src={currentImage}
             alt={post.title}
             className="feed-image"
-            onError={e => {
-              e.currentTarget.onerror = null
-              e.currentTarget.src = createPlaceholderImage(post.title, post.city)
+            onError={() => {
+              setFailedImages(prev => ({
+                ...prev,
+                [`${post.id}_${currentImage}`]: true,
+              }))
             }}
           />
 
@@ -337,7 +412,7 @@ export const FeedPage: React.FC<Props> = ({
           {post.previewPoints.length > 0 && post.type === 'route' && (
             <div className="feed-preview-points">
               {post.previewPoints.map(point => (
-                <span key={point} className="feed-preview-point">
+                <span key={`${post.id}_${normalizeText(point)}`} className="feed-preview-point">
                   {point}
                 </span>
               ))}
@@ -372,12 +447,31 @@ export const FeedPage: React.FC<Props> = ({
               className="feed-open-route-btn"
               onClick={e => {
                 e.stopPropagation()
-                onOpenRoutes(post.city, post.routeId)
+                onOpenRoutes(post.city, post.routeId || undefined)
               }}
             >
               Открыть
             </button>
           </div>
+
+          {visibleImages.length > 1 && (
+            <div className="feed-actions" style={{ marginTop: 10 }}>
+              {visibleImages.map((img, idx) => (
+                <button
+                  key={`${post.id}_${img}_${idx}`}
+                  type="button"
+                  className={idx === currentImageIndex ? 'feed-action-btn active' : 'feed-action-btn'}
+                  onClick={e => {
+                    e.stopPropagation()
+                    setPostImageIndex(post.id, idx)
+                  }}
+                  style={{ padding: '8px 10px', minWidth: 40 }}
+                >
+                  {idx + 1}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </article>
     )
@@ -418,9 +512,11 @@ export const FeedPage: React.FC<Props> = ({
               src={currentImage}
               alt={openedPost.title}
               className="feed-post-image"
-              onError={e => {
-                e.currentTarget.onerror = null
-                e.currentTarget.src = createPlaceholderImage(openedPost.title, openedPost.city)
+              onError={() => {
+                setFailedImages(prev => ({
+                  ...prev,
+                  [`${openedPost.id}_${currentImage}`]: true,
+                }))
               }}
             />
 
@@ -496,7 +592,7 @@ export const FeedPage: React.FC<Props> = ({
             {openedPost.previewPoints.length > 0 && (
               <div className="feed-post-points">
                 {openedPost.previewPoints.map(point => (
-                  <span key={point} className="feed-post-point-chip">
+                  <span key={`${openedPost.id}_${normalizeText(point)}`} className="feed-post-point-chip">
                     {point}
                   </span>
                 ))}
@@ -523,7 +619,7 @@ export const FeedPage: React.FC<Props> = ({
               <button
                 type="button"
                 className="feed-open-route-btn"
-                onClick={() => onOpenRoutes(openedPost.city, openedPost.routeId)}
+                onClick={() => onOpenRoutes(openedPost.city, openedPost.routeId || undefined)}
               >
                 Открыть маршрут
               </button>
@@ -573,16 +669,20 @@ export const FeedPage: React.FC<Props> = ({
       )}
 
       {!isLoadingFeed && feedError && (
-        <div style={{ padding: '12px 4px 20px', color: '#ef4444' }}>
+        <div style={{ padding: '12px 4px 20px', color: '#dc2626' }}>
           {feedError}
         </div>
       )}
 
-      {!isLoadingFeed && !feedError && (
-        <div className="feed-list">
-          {sortedFeed.map(renderCard)}
+      {!isLoadingFeed && !feedError && visibleFeedPosts.length === 0 && (
+        <div style={{ padding: '12px 4px 20px', color: '#64748b' }}>
+          В ленте пока нет публикаций
         </div>
       )}
+
+      <div className="feed-list">
+        {visibleFeedPosts.map(renderCard)}
+      </div>
 
       {renderModal()}
     </div>
