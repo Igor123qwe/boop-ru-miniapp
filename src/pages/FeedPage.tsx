@@ -609,7 +609,10 @@ const buildFeedPosts = (): FeedPost[] => {
 
     const routeOwnImages = getRouteOwnImages(route)
     const routePointImages = getAllPointImagesFromRoute(route)
-    const routeImages = dedupeImages([...routeOwnImages, ...routePointImages])
+    const routeImages = dedupeImages([
+      ...routeOwnImages,
+      ...routePointImages,
+    ])
 
     posts.push({
       id: `route_${route.id}_${buildRouteSemanticKey(route)}`,
@@ -619,9 +622,7 @@ const buildFeedPosts = (): FeedPost[] => {
       cityFolder,
       title: route.title,
       description: route.shortDescription || 'Готовый маршрут по городу',
-      image:
-        routeImages[0] ||
-        createPlaceholderImage(route.title, `${route.city} · маршрут`),
+      image: routeImages[0] || '',
       images: routeImages,
       likes: route.popularity ?? 19,
       daysCount: route.daysCount,
@@ -661,10 +662,7 @@ const buildFeedPosts = (): FeedPost[] => {
           cityFolder,
           title: point.title || 'Место',
           description: point.description || 'Интересное место маршрута',
-          image:
-            pointImages[0] ||
-            routeImages[0] ||
-            createPlaceholderImage(point.title || 'Место', route.city),
+          image: pointImages[0] || routeImages[0] || '',
           images: pointImages,
           likes: Math.max(8, (route.popularity ?? 20) - pointIndex),
           daysCount: route.daysCount,
@@ -792,9 +790,22 @@ export const FeedPage: React.FC<Props> = ({
     route: PopularRoute,
     cityFolder: string
   ): Promise<string[]> => {
-    const key = route.id
+    const key = `${normalizeText(route.city)}::${route.id}`
     const cached = routeImagesCacheRef.current.get(key)
     if (cached) return cached
+
+    const routeOwnImages = getRouteOwnImages(route)
+    const routePointImages = getAllPointImagesFromRoute(route)
+
+    if (routeOwnImages.length > 0 || routePointImages.length > 0) {
+      const directImages = dedupeImages([
+        ...routeOwnImages,
+        ...routePointImages,
+      ]).slice(0, MAX_ROUTE_FEED_IMAGES)
+
+      routeImagesCacheRef.current.set(key, directImages)
+      return directImages
+    }
 
     const points = getRouteMeaningfulPoints(route)
 
@@ -814,14 +825,7 @@ export const FeedPage: React.FC<Props> = ({
       })
     )
 
-    const routeOwnImages = getRouteOwnImages(route)
-    const routePointImages = getAllPointImagesFromRoute(route)
-
-    const finalImages = dedupeImages([
-      ...routeOwnImages,
-      ...routePointImages,
-      ...perPointImages.flat(),
-    ]).slice(0, MAX_ROUTE_FEED_IMAGES)
+    const finalImages = dedupeImages(perPointImages.flat()).slice(0, MAX_ROUTE_FEED_IMAGES)
 
     routeImagesCacheRef.current.set(key, finalImages)
     return finalImages
@@ -856,10 +860,14 @@ export const FeedPage: React.FC<Props> = ({
 
             if (cancelled) return post
 
+            const routeOwnImages = getRouteOwnImages(post.route)
+            const routePointImages = getAllPointImagesFromRoute(post.route)
+
             const finalImages = dedupeImages([
               ...resolvedImages,
               ...post.images,
-              post.image,
+              ...routeOwnImages,
+              ...routePointImages,
             ])
 
             return {
@@ -872,19 +880,17 @@ export const FeedPage: React.FC<Props> = ({
           }
 
           if (post.type === 'route') {
+            const routeOwnImages = getRouteOwnImages(post.route)
+            const routePointImages = getAllPointImagesFromRoute(post.route)
             const resolvedRouteImages = await getRouteImagesCached(post.route, post.cityFolder)
 
             if (cancelled) return post
 
-            const routeOwnImages = getRouteOwnImages(post.route)
-            const routePointImages = getAllPointImagesFromRoute(post.route)
-
             const finalImages = dedupeImages([
-              ...resolvedRouteImages,
               ...routeOwnImages,
+              ...resolvedRouteImages,
               ...routePointImages,
               ...post.images,
-              post.image,
             ]).slice(0, MAX_ROUTE_FEED_IMAGES)
 
             return {
