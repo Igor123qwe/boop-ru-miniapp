@@ -610,7 +610,6 @@ export const FeedPage: React.FC<Props> = ({
   const [likedPostIds, setLikedPostIds] = useState<string[]>([])
   const [savedPostIds, setSavedPostIds] = useState<string[]>([])
   const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
-  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [openedPost, setOpenedPost] = useState<FeedPost | null>(null)
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
   const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true)
@@ -749,9 +748,7 @@ export const FeedPage: React.FC<Props> = ({
       post.images?.length ? post.images : post.image ? [post.image] : []
     )
 
-    const visible = source.filter(img => !failedImages[`${post.id}_${img}`])
-
-    if (visible.length > 0) return visible
+    if (source.length > 0) return source
 
     return [createPlaceholderImage(post.title, post.city)]
   }
@@ -832,12 +829,10 @@ export const FeedPage: React.FC<Props> = ({
             src={currentImage}
             alt={post.title}
             className="feed-image"
-            onError={() => {
+            onError={e => {
               console.error('FEED IMG FAIL:', post.title, currentImage)
-              setFailedImages(prev => ({
-                ...prev,
-                [`${post.id}_${currentImage}`]: true,
-              }))
+              e.currentTarget.onerror = null
+              e.currentTarget.src = createPlaceholderImage(post.title, post.city)
             }}
           />
 
@@ -977,12 +972,10 @@ export const FeedPage: React.FC<Props> = ({
               src={currentImage}
               alt={openedPost.title}
               className="feed-post-image"
-              onError={() => {
+              onError={e => {
                 console.error('FEED MODAL IMG FAIL:', openedPost.title, currentImage)
-                setFailedImages(prev => ({
-                  ...prev,
-                  [`${openedPost.id}_${currentImage}`]: true,
-                }))
+                e.currentTarget.onerror = null
+                e.currentTarget.src = createPlaceholderImage(openedPost.title, openedPost.city)
               }}
             />
 
