@@ -42,40 +42,59 @@ type FeedPost = {
   pointIndex?: number
 }
 
-type FeedPlacePhotosResponse = {
-  city: string
-  cityId: string
-  title: string
-  normalizedTitle: string
-  found: boolean
-  placeId: string | null
-  coverImage: string | null
-  images: string[]
-  photosCount?: number
+type PlacePhotoDto = {
+  id: string
+  place_id: string
+  url: string
+  thumb_url?: string | null
+  width?: number | null
+  height?: number | null
+  source?: string | null
+  user_id?: string | null
+  is_cover?: boolean
+  sort_order?: number
+  status?: string
+  created_at?: string
 }
 
-type FeedRoutePhotosResponse = {
-  routeId: string
+type PlaceDto = {
+  id: string
+  city_id: string
   title: string
-  city: string
-  cityId: string
-  images: string[]
-  places: Array<{
-    title: string
-    description?: string | null
-    time?: string | null
-    normalizedTitle: string
-    found: boolean
-    placeId: string | null
-    coverImage: string | null
-    images: string[]
-    photosCount?: number
-  }>
-  stats?: {
-    totalPoints: number
-    matchedPlaces: number
-    totalImages: number
+  slug?: string
+  normalized_title?: string
+  description?: string | null
+  lat?: number | null
+  lon?: number | null
+  cover_image?: string | null
+  photos_count?: number
+  created_at?: string
+  updated_at?: string
+}
+
+type ResolvePlaceReadyResponse = {
+  status: 'ready'
+  data: {
+    place: PlaceDto
+    photos: PlacePhotoDto[]
   }
+}
+
+type ResolvePlaceProcessingResponse = {
+  status: 'processing'
+  jobId?: number | string
+  placeId?: string
+  message?: string
+}
+
+type ResolvePlaceResponse =
+  | ResolvePlaceReadyResponse
+  | ResolvePlaceProcessingResponse
+
+type ParseJobResponse = {
+  id: number | string
+  status: 'pending' | 'processing' | 'done' | 'error'
+  payload?: Record<string, unknown> | null
 }
 
 const getWindowOrigin = (): string => {
@@ -85,18 +104,16 @@ const getWindowOrigin = (): string => {
   return ''
 }
 
-/**
- * База для API.
- * 1) если задан VITE_API_BASE_URL — используем его
- * 2) иначе на клиенте используем текущий origin
- * 3) НЕ падаем в localhost на проде
- */
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   getWindowOrigin()
 
+const PUBLIC_APP_URL =
+  (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.replace(/\/$/, '') ||
+  getWindowOrigin()
+
 const MAX_ROUTE_FEED_IMAGES = 12
-const MAX_ROUTE_POINTS_TO_TRY = 10
+const MAX_ROUTE_POINTS_TO_TRY = 8
 
 const normalizeText = (value?: string): string => {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -187,25 +204,11 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
-/**
- * Для API запросов.
- */
 const buildApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`
-
-  if (API_BASE_URL) {
-    return `${API_BASE_URL}${cleanPath}`
-  }
-
-  return cleanPath
+  return API_BASE_URL ? `${API_BASE_URL}${cleanPath}` : cleanPath
 }
 
-/**
- * Для картинок:
- * - абсолютные URL оставляем как есть
- * - data/blob оставляем как есть
- * - относительные пути превращаем в абсолютные через origin
- */
 const resolveImageUrl = (url?: string): string => {
   const value = String(url || '').trim()
   if (!value) return ''
@@ -223,15 +226,13 @@ const resolveImageUrl = (url?: string): string => {
     return `https:${value}`
   }
 
-  const origin =
-    (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.replace(/\/$/, '') ||
-    (typeof window !== 'undefined' ? window.location.origin : '')
-
   if (value.startsWith('/')) {
-    return origin ? `${origin}${value}` : value
+    return PUBLIC_APP_URL ? `${PUBLIC_APP_URL}${value}` : value
   }
 
-  return origin ? `${origin}/${value.replace(/^\/+/, '')}` : `/${value.replace(/^\/+/, '')}`
+  return PUBLIC_APP_URL
+    ? `${PUBLIC_APP_URL}/${value.replace(/^\/+/, '')}`
+    : `/${value.replace(/^\/+/, '')}`
 }
 
 const dedupeImages = (images: string[]): string[] => {
@@ -243,6 +244,9 @@ const dedupeImages = (images: string[]): string[] => {
     )
   )
 }
+
+const wait = (ms: number): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, ms))
 
 const createPlaceholderImage = (title: string, subtitle?: string): string => {
   const safeTitle = (title || 'Маршрут')
@@ -417,6 +421,96 @@ const getRouteMeaningfulPoints = (
   return items
 }
 
+const fetchPlaceFullByTitle = async (
+  city: string,
+  title: string
+): Promise<ResolvePlaceResponse> => {
+  const url = `${buildApiUrl('/places/resolve/full')}?city=${encodeURIComponent(
+    city
+  )}&title=${encodeURIComponent(title)}`
+
+  const res = await fetch(url)
+  if (!res.ok) {
+    let errorText = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      errorText = data?.details || data?.error || errorText
+    } catch {
+      //
+    }
+    throw new Error(errorText)
+  }
+
+  return (await res.json()) as ResolvePlaceResponse
+}
+
+const fetchParseJob = async (
+  jobId: number | string
+): Promise<ParseJobResponse | null> => {
+  const res = await fetch(buildApiUrl(`/admin/parse-jobs/${jobId}`))
+  if (!res.ok) return null
+  return (await res.json()) as ParseJobResponse
+}
+
+const pollPlaceUntilReady = async (
+  city: string,
+  title: string,
+  jobId?: number | string,
+  maxAttempts = 12
+): Promise<ResolvePlaceReadyResponse | null> => {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await wait(attempt === 0 ? 1200 : 2000)
+
+    if (jobId) {
+      const job = await fetchParseJob(jobId)
+      if (job?.status === 'error') {
+        return null
+      }
+    }
+
+    const response = await fetchPlaceFullByTitle(city, title)
+    if (response.status === 'ready') {
+      return response
+    }
+  }
+
+  return null
+}
+
+const getPlaceImagesDirect = async (
+  city: string,
+  title: string
+): Promise<string[]> => {
+  try {
+    const response = await fetchPlaceFullByTitle(city, title)
+
+    if (response.status === 'ready') {
+      return dedupeImages(
+        (response.data.photos || [])
+          .map(photo => photo.url || photo.thumb_url || '')
+          .filter(Boolean)
+      )
+    }
+
+    if (response.status === 'processing') {
+      const readyResponse = await pollPlaceUntilReady(city, title, response.jobId)
+
+      if (readyResponse?.status === 'ready') {
+        return dedupeImages(
+          (readyResponse.data.photos || [])
+            .map(photo => photo.url || photo.thumb_url || '')
+            .filter(Boolean)
+        )
+      }
+    }
+
+    return []
+  } catch (error) {
+    console.error('getPlaceImagesDirect error:', city, title, error)
+    return []
+  }
+}
+
 const buildFeedPosts = (): FeedPost[] => {
   const routes = uniqueRoutes(getAllRoutes())
   const posts: FeedPost[] = []
@@ -507,51 +601,6 @@ const buildFeedPosts = (): FeedPost[] => {
   return uniquePosts(posts)
 }
 
-const fetchPlacePhotosForFeed = async (
-  city: string,
-  title: string
-): Promise<FeedPlacePhotosResponse | null> => {
-  try {
-    const url = new URL(buildApiUrl('/feed/place-photos'))
-    url.searchParams.set('city', city)
-    url.searchParams.set('title', title)
-
-    const res = await fetch(url.toString())
-    if (!res.ok) return null
-
-    return (await res.json()) as FeedPlacePhotosResponse
-  } catch (error) {
-    console.error('fetchPlacePhotosForFeed error:', error)
-    return null
-  }
-}
-
-const fetchRoutePhotosForFeed = async (
-  route: PopularRoute
-): Promise<FeedRoutePhotosResponse | null> => {
-  try {
-    const points = getRouteMeaningfulPoints(route)
-
-    const res = await fetch(buildApiUrl('/feed/route-photos'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        city: route.city,
-        routeId: route.id,
-        title: route.title,
-        points,
-      }),
-    })
-
-    if (!res.ok) return null
-
-    return (await res.json()) as FeedRoutePhotosResponse
-  } catch (error) {
-    console.error('fetchRoutePhotosForFeed error:', error)
-    return null
-  }
-}
-
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onCreateRoute,
@@ -566,8 +615,7 @@ export const FeedPage: React.FC<Props> = ({
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
   const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true)
 
-  const routePhotosCacheRef = useRef<Map<string, FeedRoutePhotosResponse | null>>(new Map())
-  const placePhotosCacheRef = useRef<Map<string, FeedPlacePhotosResponse | null>>(new Map())
+  const placeImagesCacheRef = useRef<Map<string, string[]>>(new Map())
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
@@ -590,28 +638,16 @@ export const FeedPage: React.FC<Props> = ({
     setFeedPosts(initialFeedPosts)
   }, [initialFeedPosts])
 
-  const getRoutePhotosCached = async (
-    route: PopularRoute
-  ): Promise<FeedRoutePhotosResponse | null> => {
-    const key = route.id
-    const cached = routePhotosCacheRef.current.get(key)
-    if (cached !== undefined) return cached
-
-    const result = await fetchRoutePhotosForFeed(route)
-    routePhotosCacheRef.current.set(key, result)
-    return result
-  }
-
-  const getPlacePhotosCached = async (
+  const getPlaceImagesCached = async (
     city: string,
     title: string
-  ): Promise<FeedPlacePhotosResponse | null> => {
+  ): Promise<string[]> => {
     const key = `${normalizeText(city)}::${normalizeText(title)}`
-    const cached = placePhotosCacheRef.current.get(key)
-    if (cached !== undefined) return cached
+    const cached = placeImagesCacheRef.current.get(key)
+    if (cached) return cached
 
-    const result = await fetchPlacePhotosForFeed(city, title)
-    placePhotosCacheRef.current.set(key, result)
+    const result = await getPlaceImagesDirect(city, title)
+    placeImagesCacheRef.current.set(key, result)
     return result
   }
 
@@ -624,10 +660,8 @@ export const FeedPage: React.FC<Props> = ({
       const enriched = await Promise.all(
         initialFeedPosts.map(async post => {
           if (post.type === 'place') {
-            const placeResult = await getPlacePhotosCached(post.city, post.title)
+            const sqlImages = await getPlaceImagesCached(post.city, post.title)
             if (cancelled) return post
-
-            const sqlImages = dedupeImages(placeResult?.images || [])
 
             const finalImages = dedupeImages([
               ...post.images,
@@ -645,10 +679,14 @@ export const FeedPage: React.FC<Props> = ({
           }
 
           if (post.type === 'route') {
-            const routeResult = await getRoutePhotosCached(post.route)
+            const points = getRouteMeaningfulPoints(post.route)
+            const perPointImages = await Promise.all(
+              points.map(point => getPlaceImagesCached(post.city, point.title))
+            )
+
             if (cancelled) return post
 
-            const sqlImages = dedupeImages(routeResult?.images || [])
+            const sqlImages = dedupeImages(perPointImages.flat())
             const routePointImages = getAllPointImagesFromRoute(post.route)
 
             const finalImages = dedupeImages([
@@ -795,6 +833,7 @@ export const FeedPage: React.FC<Props> = ({
             alt={post.title}
             className="feed-image"
             onError={() => {
+              console.error('FEED IMG FAIL:', post.title, currentImage)
               setFailedImages(prev => ({
                 ...prev,
                 [`${post.id}_${currentImage}`]: true,
@@ -939,6 +978,7 @@ export const FeedPage: React.FC<Props> = ({
               alt={openedPost.title}
               className="feed-post-image"
               onError={() => {
+                console.error('FEED MODAL IMG FAIL:', openedPost.title, currentImage)
                 setFailedImages(prev => ({
                   ...prev,
                   [`${openedPost.id}_${currentImage}`]: true,
