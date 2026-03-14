@@ -201,13 +201,10 @@ const buildApiUrl = (path: string): string => {
 }
 
 /**
- * Для картинок.
- *
- * ВАЖНО:
+ * Для картинок:
  * - абсолютные URL оставляем как есть
  * - data/blob оставляем как есть
- * - относительные /img/... /uploads/... и т.д. НЕ отправляем насильно на localhost
- * - если путь относительный, браузер грузит его от текущего origin
+ * - относительные пути превращаем в абсолютные через origin
  */
 const resolveImageUrl = (url?: string): string => {
   const value = String(url || '').trim()
@@ -226,11 +223,15 @@ const resolveImageUrl = (url?: string): string => {
     return `https:${value}`
   }
 
+  const origin =
+    (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.replace(/\/$/, '') ||
+    (typeof window !== 'undefined' ? window.location.origin : '')
+
   if (value.startsWith('/')) {
-    return value
+    return origin ? `${origin}${value}` : value
   }
 
-  return `/${value.replace(/^\/+/, '')}`
+  return origin ? `${origin}/${value.replace(/^\/+/, '')}` : `/${value.replace(/^\/+/, '')}`
 }
 
 const dedupeImages = (images: string[]): string[] => {
