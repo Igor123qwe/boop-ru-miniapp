@@ -78,9 +78,22 @@ type FeedRoutePhotosResponse = {
   }
 }
 
+const getWindowOrigin = (): string => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin
+  }
+  return ''
+}
+
+/**
+ * База для API.
+ * 1) если задан VITE_API_BASE_URL — используем его
+ * 2) иначе на клиенте используем текущий origin
+ * 3) НЕ падаем в localhost на проде
+ */
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'http://localhost:3000'
+  getWindowOrigin()
 
 const MAX_ROUTE_FEED_IMAGES = 12
 const MAX_ROUTE_POINTS_TO_TRY = 10
@@ -174,6 +187,28 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
+/**
+ * Для API запросов.
+ */
+const buildApiUrl = (path: string): string => {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`
+
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${cleanPath}`
+  }
+
+  return cleanPath
+}
+
+/**
+ * Для картинок.
+ *
+ * ВАЖНО:
+ * - абсолютные URL оставляем как есть
+ * - data/blob оставляем как есть
+ * - относительные /img/... /uploads/... и т.д. НЕ отправляем насильно на localhost
+ * - если путь относительный, браузер грузит его от текущего origin
+ */
 const resolveImageUrl = (url?: string): string => {
   const value = String(url || '').trim()
   if (!value) return ''
@@ -181,7 +216,8 @@ const resolveImageUrl = (url?: string): string => {
   if (
     value.startsWith('http://') ||
     value.startsWith('https://') ||
-    value.startsWith('data:image/')
+    value.startsWith('data:image/') ||
+    value.startsWith('blob:')
   ) {
     return value
   }
@@ -191,10 +227,10 @@ const resolveImageUrl = (url?: string): string => {
   }
 
   if (value.startsWith('/')) {
-    return `${API_BASE_URL}${value}`
+    return value
   }
 
-  return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
+  return `/${value.replace(/^\/+/, '')}`
 }
 
 const dedupeImages = (images: string[]): string[] => {
@@ -475,7 +511,7 @@ const fetchPlacePhotosForFeed = async (
   title: string
 ): Promise<FeedPlacePhotosResponse | null> => {
   try {
-    const url = new URL(`${API_BASE_URL}/feed/place-photos`)
+    const url = new URL(buildApiUrl('/feed/place-photos'))
     url.searchParams.set('city', city)
     url.searchParams.set('title', title)
 
@@ -495,7 +531,7 @@ const fetchRoutePhotosForFeed = async (
   try {
     const points = getRouteMeaningfulPoints(route)
 
-    const res = await fetch(`${API_BASE_URL}/feed/route-photos`, {
+    const res = await fetch(buildApiUrl('/feed/route-photos'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
