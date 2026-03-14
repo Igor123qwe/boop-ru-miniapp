@@ -226,6 +226,20 @@ const getRouteOwnImages = (route: PopularRoute): string[] => {
   return dedupeImages(imgs)
 }
 
+const getAllPointImagesFromRoute = (route: PopularRoute): string[] => {
+  const imgs: string[] = []
+
+  for (const day of route.days || []) {
+    for (const point of day.points || []) {
+      if (Array.isArray(point.images)) {
+        imgs.push(...point.images)
+      }
+    }
+  }
+
+  return dedupeImages(imgs)
+}
+
 const getPointOwnImages = (
   route: PopularRoute,
   dayIndex?: number,
@@ -347,7 +361,9 @@ const buildFeedPosts = (): FeedPost[] => {
     const pointsCount = countRoutePoints(route)
     const cityFolder = normalizeCityFolder(route.city || '')
 
-    const routeImages = getRouteOwnImages(route)
+    const routeOwnImages = getRouteOwnImages(route)
+    const routePointImages = getAllPointImagesFromRoute(route)
+    const routeImages = dedupeImages([...routeOwnImages, ...routePointImages])
 
     posts.push({
       id: `route_${route.id}_${buildRouteSemanticKey(route)}`,
@@ -567,10 +583,12 @@ export const FeedPage: React.FC<Props> = ({
             if (cancelled) return post
 
             const sqlImages = routeResult?.images || []
+            const routePointImages = getAllPointImagesFromRoute(post.route)
 
             const finalImages = dedupeImages([
               ...sqlImages,
               ...post.images,
+              ...routePointImages,
               post.image,
             ]).slice(0, MAX_ROUTE_FEED_IMAGES)
 
