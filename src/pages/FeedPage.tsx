@@ -42,67 +42,14 @@ type FeedPost = {
   pointIndex?: number
 }
 
-type PlacePhotoDto = {
-  id: string
-  place_id: string
-  url: string
-  thumb_url?: string | null
-  width?: number | null
-  height?: number | null
-  source?: string | null
-  user_id?: string | null
-  is_cover?: boolean
-  sort_order?: number
-  status?: string
-  created_at?: string
-}
+const CLOUD_BASE_URL =
+  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://storage.yandexcloud.net/progid-images-novichihin'
 
-type PlaceDto = {
-  id: string
-  city_id: string
-  title: string
-  slug?: string
-  normalized_title?: string
-  description?: string | null
-  lat?: number | null
-  lon?: number | null
-  cover_image?: string | null
-  photos_count?: number
-  created_at?: string
-  updated_at?: string
-}
-
-type ResolvePlaceReadyResponse = {
-  status: 'ready'
-  data: {
-    place: PlaceDto
-    photos: PlacePhotoDto[]
-  }
-}
-
-type ResolvePlaceProcessingResponse = {
-  status: 'processing'
-  jobId?: number | string
-  placeId?: string
-  message?: string
-}
-
-type ResolvePlaceResponse =
-  | ResolvePlaceReadyResponse
-  | ResolvePlaceProcessingResponse
-
-type ParseJobResponse = {
-  id: number | string
-  status: 'pending' | 'processing' | 'done' | 'error'
-  payload?: Record<string, unknown> | null
-}
-
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'http://localhost:3000'
-
-const MAX_ROUTE_FEED_IMAGES = 10
-const MAX_ROUTE_BACKEND_POINTS_TO_TRY = 6
+const MAX_CLOUD_POINT_IMAGES = 8
+const CLOUD_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'webp', 'png']
+const MAX_ROUTE_FEED_IMAGES = 12
+const MAX_ROUTE_POINTS_TO_TRY = 10
 
 const normalizeText = (value?: string): string => {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -193,36 +140,8 @@ const buildRoutePreview = (route: PopularRoute): string[] => {
   return points
 }
 
-const isAbsoluteUrl = (value: string): boolean => {
-  return /^https?:\/\//i.test(value)
-}
-
-const normalizeImageUrl = (value?: string | null): string => {
-  const v = String(value || '').trim()
-  if (!v) return ''
-
-  if (isAbsoluteUrl(v)) return v
-
-  if (v.startsWith('//')) {
-    return `${window.location.protocol}${v}`
-  }
-
-  if (v.startsWith('/')) {
-    return `${API_BASE_URL}${v}`
-  }
-
-  return v
-}
-
 const dedupeImages = (images: string[]): string[] => {
-  return Array.from(
-    new Set(
-      images
-        .map(img => normalizeImageUrl(img))
-        .filter(Boolean)
-        .filter(img => !img.includes('example.com'))
-    )
-  )
+  return Array.from(new Set(images.map(img => String(img || '').trim()).filter(Boolean)))
 }
 
 const createPlaceholderImage = (title: string, subtitle?: string): string => {
@@ -257,6 +176,114 @@ const createPlaceholderImage = (title: string, subtitle?: string): string => {
   `.trim()
 
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
+const cleanupPlaceTitle = (title: string): string => {
+  return title
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+районе\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+в\s+/i, '')
+    .replace(/^(Обед|Ужин|Завтрак)\s+/i, '')
+    .replace(/^Переезд\s+в\s+/i, '')
+    .replace(/^Прогулка\s+по\s+/i, '')
+    .replace(/^Посещение\s+/i, '')
+    .replace(/^Осмотр\s+/i, '')
+    .trim()
+}
+
+const slugify = (value: string): string => {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/ё/g, 'е')
+    .replace(/№/g, ' ')
+    .replace(/["'«»]/g, '')
+    .replace(/[^a-zа-я0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+}
+
+const buildPointSlug = (title?: string, fallback = 'point'): string => {
+  const clean = cleanupPlaceTitle(title || '')
+  const slug = slugify(clean)
+  return slug || fallback
+}
+
+const buildExactCloudPrefix = (
+  cityFolder: string,
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
+): string => {
+  const pointSlug = buildPointSlug(title, `point_${pointIndex}`)
+  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/day_${dayIndex}/point_${pointIndex}_${pointSlug}`
+}
+
+const buildLegacyCloudPrefix = (
+  cityFolder: string,
+  routeId: string,
+  pointIndex: number
+): string => {
+  return `${CLOUD_BASE_URL}/${cityFolder}/${routeId}/point_${pointIndex}`
+}
+
+const buildPlacesCloudPrefix = (cityFolder: string, title?: string): string => {
+  const pointSlug = buildPointSlug(title, 'place')
+  return `${CLOUD_BASE_URL}/${cityFolder}/places/${pointSlug}`
+}
+
+const probeImageUrl = (url: string): Promise<boolean> => {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => resolve(true)
+    img.onerror = () => resolve(false)
+    img.src = url
+  })
+}
+
+const loadImagesByPrefix = async (prefix: string): Promise<string[]> => {
+  const checks = Array.from({ length: MAX_CLOUD_POINT_IMAGES }, (_, index) => {
+    const i = index + 1
+
+    return Promise.all(
+      CLOUD_IMAGE_EXTENSIONS.map(async ext => {
+        const url = `${prefix}/image-${i}.${ext}`
+        const ok = await probeImageUrl(url)
+        return ok ? url : null
+      })
+    )
+  })
+
+  const results = await Promise.all(checks)
+
+  return results
+    .map(group => group.find(Boolean))
+    .filter(Boolean) as string[]
+}
+
+const loadCloudPointImages = async (
+  cityFolder: string,
+  routeId: string,
+  dayIndex: number,
+  pointIndex: number,
+  title?: string
+): Promise<string[]> => {
+  const exactPrefix = buildExactCloudPrefix(cityFolder, routeId, dayIndex, pointIndex, title)
+  const legacyPrefix = buildLegacyCloudPrefix(cityFolder, routeId, pointIndex)
+  const placesPrefix = buildPlacesCloudPrefix(cityFolder, title)
+
+  const exactUrls = await loadImagesByPrefix(exactPrefix)
+  if (exactUrls.length > 0) return exactUrls
+
+  const legacyUrls = await loadImagesByPrefix(legacyPrefix)
+  if (legacyUrls.length > 0) return legacyUrls
+
+  const placesUrls = await loadImagesByPrefix(placesPrefix)
+  if (placesUrls.length > 0) return placesUrls
+
+  return []
 }
 
 const getRouteOwnImages = (route: PopularRoute): string[] => {
@@ -298,6 +325,31 @@ const getAllPointImagesFromRoute = (route: PopularRoute): string[] => {
   }
 
   return dedupeImages(imgs)
+}
+
+const getRouteMeaningfulPoints = (
+  route: PopularRoute
+): Array<{ dayIndex: number; pointIndex: number; title: string }> => {
+  const items: Array<{ dayIndex: number; pointIndex: number; title: string }> = []
+
+  for (let dayIndex = 0; dayIndex < route.days.length; dayIndex += 1) {
+    const day = route.days[dayIndex]
+
+    for (let pointIndex = 0; pointIndex < day.points.length; pointIndex += 1) {
+      const point = day.points[pointIndex]
+      const title = point.title?.trim()
+
+      if (!title || isUtilityPoint(title)) continue
+
+      items.push({ dayIndex, pointIndex, title })
+
+      if (items.length >= MAX_ROUTE_POINTS_TO_TRY) {
+        return items
+      }
+    }
+  }
+
+  return items
 }
 
 const buildRouteSemanticKey = (route: PopularRoute): string => {
@@ -464,149 +516,6 @@ const buildFeedPosts = (): FeedPost[] => {
   return uniquePosts(posts)
 }
 
-const wait = (ms: number): Promise<void> =>
-  new Promise(resolve => setTimeout(resolve, ms))
-
-const fetchPlaceFullByTitle = async (
-  city: string,
-  title: string
-): Promise<ResolvePlaceResponse> => {
-  const url = `${API_BASE_URL}/places/resolve/full?city=${encodeURIComponent(
-    city
-  )}&title=${encodeURIComponent(title)}`
-
-  const res = await fetch(url)
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`)
-  }
-
-  return (await res.json()) as ResolvePlaceResponse
-}
-
-const fetchParseJob = async (
-  jobId: number | string
-): Promise<ParseJobResponse | null> => {
-  const res = await fetch(`${API_BASE_URL}/admin/parse-jobs/${jobId}`)
-  if (!res.ok) return null
-  return (await res.json()) as ParseJobResponse
-}
-
-const pollPlaceUntilReady = async (
-  city: string,
-  title: string,
-  jobId?: number | string,
-  maxAttempts = 10
-): Promise<ResolvePlaceReadyResponse | null> => {
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    await wait(attempt === 0 ? 1200 : 1800)
-
-    if (jobId) {
-      const job = await fetchParseJob(jobId)
-      if (job?.status === 'error') return null
-    }
-
-    const response = await fetchPlaceFullByTitle(city, title)
-    if (response.status === 'ready') {
-      return response
-    }
-  }
-
-  return null
-}
-
-const extractPhotoUrls = (photos: PlacePhotoDto[]): string[] => {
-  const result: string[] = []
-
-  const sorted = [...(photos || [])].sort((a, b) => {
-    const coverA = a.is_cover ? 1 : 0
-    const coverB = b.is_cover ? 1 : 0
-    if (coverA !== coverB) return coverB - coverA
-    return (a.sort_order ?? 0) - (b.sort_order ?? 0)
-  })
-
-  for (const photo of sorted) {
-    const original = normalizeImageUrl(photo.url)
-    const thumb = normalizeImageUrl(photo.thumb_url)
-
-    if (original) result.push(original)
-    if (thumb) result.push(thumb)
-  }
-
-  return dedupeImages(result)
-}
-
-const fetchBackendPlaceImagesRaw = async (
-  city: string,
-  title: string
-): Promise<string[]> => {
-  try {
-    const response = await fetchPlaceFullByTitle(city, title)
-
-    if (response.status === 'ready') {
-      return extractPhotoUrls(response.data.photos || [])
-    }
-
-    if (response.status === 'processing') {
-      const readyResponse = await pollPlaceUntilReady(city, title, response.jobId)
-      if (readyResponse?.status === 'ready') {
-        return extractPhotoUrls(readyResponse.data.photos || [])
-      }
-    }
-
-    return []
-  } catch (error) {
-    console.error('fetchBackendPlaceImagesRaw error:', city, title, error)
-    return []
-  }
-}
-
-const getRouteMeaningfulPoints = (route: PopularRoute): string[] => {
-  const titles: string[] = []
-
-  for (const day of route.days) {
-    for (const point of day.points) {
-      const title = point.title?.trim()
-      if (!title || isUtilityPoint(title)) continue
-      if (!titles.includes(title)) titles.push(title)
-      if (titles.length >= MAX_ROUTE_BACKEND_POINTS_TO_TRY) return titles
-    }
-  }
-
-  return titles
-}
-
-const mergeRouteImages = (post: FeedPost, backendImages: string[]): string[] => {
-  const safeBackendImages = backendImages.map(normalizeImageUrl).filter(Boolean)
-  const safeCurrentImages = (post.images || []).map(normalizeImageUrl).filter(Boolean)
-  const safeMainImage = normalizeImageUrl(post.image)
-
-  const result = dedupeImages([
-    ...safeBackendImages,
-    ...safeCurrentImages,
-    safeMainImage,
-  ]).slice(0, MAX_ROUTE_FEED_IMAGES)
-
-  if (result.length > 0) return result
-
-  return [createPlaceholderImage(post.title, `${post.city} · маршрут`)]
-}
-
-const mergePlaceImages = (post: FeedPost, backendImages: string[]): string[] => {
-  const safeBackendImages = backendImages.map(normalizeImageUrl).filter(Boolean)
-  const safeCurrentImages = (post.images || []).map(normalizeImageUrl).filter(Boolean)
-  const safeMainImage = normalizeImageUrl(post.image)
-
-  const result = dedupeImages([
-    ...safeBackendImages,
-    ...safeCurrentImages,
-    safeMainImage,
-  ])
-
-  if (result.length > 0) return result
-
-  return [createPlaceholderImage(post.title, post.city)]
-}
-
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onCreateRoute,
@@ -621,7 +530,8 @@ export const FeedPage: React.FC<Props> = ({
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
   const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true)
 
-  const backendImageCacheRef = useRef<Map<string, string[]>>(new Map())
+  const routeCloudCacheRef = useRef<Map<string, string[]>>(new Map())
+  const pointCloudCacheRef = useRef<Map<string, string[]>>(new Map())
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
@@ -644,17 +554,58 @@ export const FeedPage: React.FC<Props> = ({
     setFeedPosts(initialFeedPosts)
   }, [initialFeedPosts])
 
-  const getCachedBackendPlaceImages = async (
-    city: string,
-    title: string
+  const getPointCloudImagesCached = async (
+    route: PopularRoute,
+    cityFolder: string,
+    dayIndex: number,
+    pointIndex: number,
+    title?: string
   ): Promise<string[]> => {
-    const key = `${normalizeText(city)}::${normalizeText(title)}`
-    const cached = backendImageCacheRef.current.get(key)
+    const key = `${route.id}_${dayIndex}_${pointIndex}_${normalizeText(title)}`
+    const cached = pointCloudCacheRef.current.get(key)
     if (cached) return cached
 
-    const images = await fetchBackendPlaceImagesRaw(city, title)
-    backendImageCacheRef.current.set(key, images)
+    const images = await loadCloudPointImages(
+      cityFolder,
+      route.id,
+      dayIndex,
+      pointIndex,
+      title
+    )
+
+    pointCloudCacheRef.current.set(key, images)
     return images
+  }
+
+  const getRouteCloudImagesCached = async (
+    post: FeedPost
+  ): Promise<string[]> => {
+    const key = `${post.route.id}_${post.cityFolder}`
+    const cached = routeCloudCacheRef.current.get(key)
+    if (cached) return cached
+
+    const meaningfulPoints = getRouteMeaningfulPoints(post.route)
+    const collected: string[] = []
+
+    for (const item of meaningfulPoints) {
+      const pointImages = await getPointCloudImagesCached(
+        post.route,
+        post.cityFolder,
+        item.dayIndex,
+        item.pointIndex,
+        item.title
+      )
+
+      collected.push(...pointImages)
+
+      if (dedupeImages(collected).length >= MAX_ROUTE_FEED_IMAGES) {
+        break
+      }
+    }
+
+    const finalImages = dedupeImages(collected).slice(0, MAX_ROUTE_FEED_IMAGES)
+    routeCloudCacheRef.current.set(key, finalImages)
+    return finalImages
   }
 
   useEffect(() => {
@@ -666,34 +617,48 @@ export const FeedPage: React.FC<Props> = ({
       const enriched = await Promise.all(
         initialFeedPosts.map(async post => {
           if (post.type === 'place') {
-            const backendImages = await getCachedBackendPlaceImages(post.city, post.title)
+            if (
+              typeof post.dayIndex !== 'number' ||
+              typeof post.pointIndex !== 'number'
+            ) {
+              return post
+            }
+
+            const cloudImages = await getPointCloudImagesCached(
+              post.route,
+              post.cityFolder,
+              post.dayIndex,
+              post.pointIndex,
+              post.title
+            )
+
             if (cancelled) return post
 
-            const finalImages = mergePlaceImages(post, backendImages)
+            const finalImages = dedupeImages([
+              ...post.images,
+              ...cloudImages,
+              post.image,
+            ])
 
             return {
               ...post,
-              image: finalImages[0] || createPlaceholderImage(post.title, post.city),
+              image:
+                finalImages[0] ||
+                createPlaceholderImage(post.title, post.city),
               images: finalImages,
             }
           }
 
           if (post.type === 'route') {
-            const pointTitles = getRouteMeaningfulPoints(post.route)
-            const collected: string[] = []
-
-            for (const title of pointTitles) {
-              const images = await getCachedBackendPlaceImages(post.city, title)
-              collected.push(...images)
-
-              if (dedupeImages(collected).length >= MAX_ROUTE_FEED_IMAGES) {
-                break
-              }
-            }
+            const cloudImages = await getRouteCloudImagesCached(post)
 
             if (cancelled) return post
 
-            const finalImages = mergeRouteImages(post, dedupeImages(collected))
+            const finalImages = dedupeImages([
+              ...post.images,
+              ...cloudImages,
+              post.image,
+            ]).slice(0, MAX_ROUTE_FEED_IMAGES)
 
             return {
               ...post,
@@ -748,11 +713,7 @@ export const FeedPage: React.FC<Props> = ({
       post.images?.length ? post.images : post.image ? [post.image] : []
     )
 
-    const visible = source.filter(img => {
-      const normalized = normalizeImageUrl(img)
-      if (!normalized) return false
-      return !failedImages[`${post.id}_${normalized}`]
-    })
+    const visible = source.filter(img => !failedImages[`${post.id}_${img}`])
 
     if (visible.length > 0) return visible
 
@@ -832,14 +793,13 @@ export const FeedPage: React.FC<Props> = ({
           )}
 
           <img
-            src={normalizeImageUrl(currentImage)}
+            src={currentImage}
             alt={post.title}
             className="feed-image"
             onError={() => {
-              const normalized = normalizeImageUrl(currentImage)
               setFailedImages(prev => ({
                 ...prev,
-                [`${post.id}_${normalized}`]: true,
+                [`${post.id}_${currentImage}`]: true,
               }))
             }}
           />
@@ -977,14 +937,13 @@ export const FeedPage: React.FC<Props> = ({
             )}
 
             <img
-              src={normalizeImageUrl(currentImage)}
+              src={currentImage}
               alt={openedPost.title}
               className="feed-post-image"
               onError={() => {
-                const normalized = normalizeImageUrl(currentImage)
                 setFailedImages(prev => ({
                   ...prev,
-                  [`${openedPost.id}_${normalized}`]: true,
+                  [`${openedPost.id}_${currentImage}`]: true,
                 }))
               }}
             />
@@ -1133,7 +1092,7 @@ export const FeedPage: React.FC<Props> = ({
 
       {isLoadingFeed && (
         <div style={{ padding: '12px 4px 20px', color: '#64748b' }}>
-          Загружаем фото из сервера…
+          Собираем фото маршрутов…
         </div>
       )}
 
