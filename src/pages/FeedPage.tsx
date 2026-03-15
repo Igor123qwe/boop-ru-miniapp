@@ -17,6 +17,7 @@ type Props = {
 }
 
 type FeedPostType = 'route' | 'place' | 'moment'
+type FeedTabType = 'all' | 'routes' | 'places' | 'moments' | 'nearby'
 
 type FeedPost = {
   id: string
@@ -411,6 +412,8 @@ export const FeedPage: React.FC<Props> = ({
   const [openedPlaceContext, setOpenedPlaceContext] = useState<PlaceFullData | null>(null)
   const [isLoadingPlaceContext, setIsLoadingPlaceContext] = useState(false)
 
+  const [activeTab, setActiveTab] = useState<FeedTabType>('all')
+
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
     setSavedPostIds(readSavedPostIds())
@@ -547,7 +550,55 @@ export const FeedPage: React.FC<Props> = ({
     }
   }
 
-  const visibleFeedPosts = useMemo(() => feedPosts, [feedPosts])
+  const composerItems = [
+    {
+      key: 'route',
+      title: 'Собрать маршрут',
+      subtitle: 'Дни, точки, фото и готовый план поездки',
+      icon: '🧭',
+      onClick: onCreateRoute,
+      available: Boolean(onCreateRoute),
+      accent: 'primary',
+    },
+    {
+      key: 'place',
+      title: 'Показать место',
+      subtitle: 'Локация, фото и короткая история',
+      icon: '📍',
+      onClick: onCreatePlace,
+      available: Boolean(onCreatePlace),
+      accent: 'secondary',
+    },
+    {
+      key: 'moment',
+      title: 'Поймать момент',
+      subtitle: 'Быстрая публикация из путешествия',
+      icon: '✨',
+      onClick: onCreateMoment,
+      available: Boolean(onCreateMoment),
+      accent: 'ghost',
+    },
+  ].filter(item => item.available)
+
+  const quickTabs: { key: FeedTabType; label: string }[] = [
+    { key: 'all', label: 'Для тебя' },
+    { key: 'routes', label: 'Маршруты' },
+    { key: 'places', label: 'Места' },
+    { key: 'moments', label: 'Моменты' },
+    { key: 'nearby', label: 'Рядом' },
+  ]
+
+  const visibleFeedPosts = useMemo(() => {
+    if (activeTab === 'all') return feedPosts
+    if (activeTab === 'routes') return feedPosts.filter(item => item.type === 'route')
+    if (activeTab === 'places') return feedPosts.filter(item => item.type === 'place')
+    if (activeTab === 'moments') return feedPosts.filter(item => item.type === 'moment')
+    if (activeTab === 'nearby') {
+      const preferredCityKeys = new Set(['kaliningrad', 'калининград'])
+      return feedPosts.filter(item => preferredCityKeys.has(normalizeCityKey(item.city)))
+    }
+    return feedPosts
+  }, [feedPosts, activeTab])
 
   const toggleLike = (postId: string) => {
     setLikedPostIds(prev => {
@@ -1146,45 +1197,67 @@ export const FeedPage: React.FC<Props> = ({
 
   return (
     <div className="feed-page">
-      <div className="feed-shell">
+      <div className="feed-topbar-sticky">
         <div className="feed-topbar">
-          <div>
-            <h2 className="feed-page-title">Лента путешествий</h2>
-            <div className="feed-subtitle">
-              Маршруты, места и travel-публикации в единой ленте
+          <div className="feed-topbar-main">
+            <div>
+              <h1 className="feed-page-title">Лента</h1>
+              <div className="feed-subtitle">
+                Маршруты, места и живые моменты путешественников
+              </div>
             </div>
+
+            <button
+              type="button"
+              className="feed-topbar-search"
+              aria-label="Поиск"
+            >
+              🔎
+            </button>
+          </div>
+
+          <div className="feed-quick-tabs" role="tablist" aria-label="Типы публикаций">
+            {quickTabs.map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`feed-quick-tab ${activeTab === tab.key ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
+      </div>
 
-        <div className="feed-compose-card">
-          <div className="feed-compose-left">
-            <div className="feed-compose-avatar">🧭</div>
-            <div className="feed-compose-texts">
-              <div className="feed-compose-title">Поделись новым маршрутом</div>
-              <div className="feed-compose-subtitle">
-                Добавляй места, собирай маршрут и публикуй его в ленту
+      <div className="feed-shell fullbleed">
+        <section className="feed-hero-composer">
+          <div className="feed-hero-head">
+            <div className="feed-hero-avatar">🌍</div>
+            <div className="feed-hero-texts">
+              <div className="feed-hero-title">Поделись поездкой</div>
+              <div className="feed-hero-subtitle">
+                Собери маршрут, покажи интересное место или поймай момент из путешествия
               </div>
             </div>
           </div>
 
-          <div className="feed-compose-actions">
-            {onCreateRoute && (
-              <button type="button" className="feed-compose-main-btn" onClick={onCreateRoute}>
-                Создать маршрут
+          <div className="feed-composer-grid">
+            {composerItems.map(item => (
+              <button
+                key={item.key}
+                type="button"
+                className={`feed-composer-card ${item.accent}`}
+                onClick={item.onClick}
+              >
+                <div className="feed-composer-icon">{item.icon}</div>
+                <div className="feed-composer-card-title">{item.title}</div>
+                <div className="feed-composer-card-subtitle">{item.subtitle}</div>
               </button>
-            )}
-            {onCreatePlace && (
-              <button type="button" className="feed-compose-icon-btn" onClick={onCreatePlace}>
-                Место
-              </button>
-            )}
-            {onCreateMoment && (
-              <button type="button" className="feed-compose-icon-btn" onClick={onCreateMoment}>
-                Момент
-              </button>
-            )}
+            ))}
           </div>
-        </div>
+        </section>
 
         {isLoadingFeed && (
           <div className="feed-state-message">Загружаем ленту…</div>
