@@ -123,6 +123,41 @@ type ParseJobResponse = {
   payload?: Record<string, unknown> | null
 }
 
+type PlaceRouteLinkDto = {
+  id: string
+  cityId?: string
+  title: string
+  slug?: string
+  shortDescription?: string
+  description?: string
+  difficulty?: string
+  distanceKm?: number | null
+  daysCount?: number | null
+  popularity?: number
+  coverImage?: string
+  authorId?: string
+  authorName?: string
+  authorAvatarUrl?: string
+  firstDayIndex?: number | null
+  firstPointIndex?: number | null
+  occurrences?: number
+}
+
+type PlaceFullResponse = {
+  ok: boolean
+  status: 'ready'
+  data: {
+    place: PlaceDto & {
+      authorId?: string
+      authorName?: string
+      authorAvatarUrl?: string
+      coverImage?: string
+    }
+    photos: PlacePhotoDto[]
+    routes: PlaceRouteLinkDto[]
+  }
+}
+
 const LOCAL_TRIPS_KEY = 'progid_my_trips'
 
 const normalizeCityKey = (city: string): string => {
@@ -327,7 +362,7 @@ const fetchPlaceFullByTitle = async (
   city: string,
   title: string
 ): Promise<ResolvePlaceResponse> => {
-  const url = `${API_BASE_URL}/places/resolve/full?city=${encodeURIComponent(
+  const url = `${API_BASE_URL}/api/places/resolve/full?city=${encodeURIComponent(
     city
   )}&title=${encodeURIComponent(title)}`
 
@@ -377,6 +412,12 @@ const pollPlaceUntilReady = async (
   }
 
   return null
+}
+
+const fetchPlaceFullById = async (placeId: string): Promise<PlaceFullResponse | null> => {
+  const res = await fetch(`${API_BASE_URL}/api/places/${encodeURIComponent(placeId)}/full`)
+  if (!res.ok) return null
+  return (await res.json()) as PlaceFullResponse
 }
 
 const prepareYandexEmbed = (raw: string): string => {
@@ -697,6 +738,8 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     url: null,
   })
   const [isWikiVisible, setIsWikiVisible] = useState<boolean>(false)
+  const [activePlaceContext, setActivePlaceContext] =
+    useState<PlaceFullResponse['data'] | null>(null)
 
   const [pointPhotosCache, setPointPhotosCache] = useState<Record<string, string[]>>({})
   const [viewMode, setViewMode] = useState<ViewMode>('routes')
@@ -734,6 +777,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         url: null,
       })
       setIsWikiVisible(false)
+      setActivePlaceContext(null)
       setHiddenPoints({})
       setExtraPoints({})
       setIsAddPlaceOpen(false)
@@ -919,6 +963,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setActiveImageIndex(0)
     setFailedPointImages({})
     setPointImages([])
+    setActivePlaceContext(null)
 
     setWikiInfo({
       loading: true,
@@ -955,6 +1000,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
 
     try {
       let backendImages: string[] = []
+      let resolvedPlaceId: string | null = null
 
       try {
         const response = await fetchPlaceFullByTitle(route.city || cityTitle, point.title || '')
@@ -962,11 +1008,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
         if (pointRequestRef.current !== currentRequestId) return
 
         if (response.status === 'ready') {
-          backendImages = dedupeImages(
-            (response.data.photos || [])
-              .map(photo => photo.url || photo.thumb_url || '')
-              .filter(Boolean)
-          )
+          resolvedPlaceId = response.data.place.id
         } else if (response.status === 'processing') {
           const readyResponse = await pollPlaceUntilReady(
             route.city || cityTitle,
@@ -977,15 +1019,32 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
           if (pointRequestRef.current !== currentRequestId) return
 
           if (readyResponse?.status === 'ready') {
+            resolvedPlaceId = readyResponse.data.place.id
+          }
+        }
+
+        if (resolvedPlaceId) {
+          const fullResponse = await fetchPlaceFullById(resolvedPlaceId)
+
+          if (pointRequestRef.current !== currentRequestId) return
+
+          if (fullResponse?.ok && fullResponse.data) {
+            setActivePlaceContext(fullResponse.data)
+
             backendImages = dedupeImages(
-              (readyResponse.data.photos || [])
+              (fullResponse.data.photos || [])
                 .map(photo => photo.url || photo.thumb_url || '')
                 .filter(Boolean)
             )
+          } else {
+            setActivePlaceContext(null)
           }
+        } else {
+          setActivePlaceContext(null)
         }
       } catch (backendError) {
         console.error('backend place photos load error', backendError)
+        setActivePlaceContext(null)
       }
 
       if (pointRequestRef.current !== currentRequestId) return
@@ -1275,6 +1334,7 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
     setFailedPointImages({})
     setActiveImageIndex(0)
     setIsPointImagesLoading(false)
+    setActivePlaceContext(null)
     setWikiInfo({
       loading: false,
       error: false,
@@ -2180,6 +2240,48 @@ export const PopularRoutesPage: React.FC<Props> = ({ city, onBack, initialRouteI
             {activePoint.point.description && (
               <div className="point-modal-inline-description">
                 {activePoint.point.description}
+              </div>
+            )}
+
+            {activePlaceContext?.place && (
+              <div className="point-modal-place-context">
+                {activePlaceContext.place.authorName && (
+                  <div className="point-modal-place-author">
+                    Добавил: {activePlaceContext.place.authorName}
+                  </div>
+                )}
+
+                {activePlaceContext.routes?.length > 0 && (
+                  <div className="point-modal-linked-routes">
+                    <div className="point-modal-linked-routes-title">
+                      Это место есть в маршрутах:
+                    </div>
+
+                    <div className="point-modal-linked-routes-list">
+                      {activePlaceContext.routes.map(routeLink => (
+                        <button
+                          key={routeLink.id}
+                          type="button"
+                          className="point-modal-linked-route-btn"
+                          onClick={() => {
+                            const found = routes.find(r => r.id === routeLink.id)
+                            if (found) {
+                              handleSelectRoute(found)
+                              handleClosePointModal()
+                            }
+                          }}
+                        >
+                          <div className="point-modal-linked-route-name">{routeLink.title}</div>
+                          <div className="point-modal-linked-route-meta">
+                            {routeLink.authorName || 'Автор'} ·{' '}
+                            {routeLink.daysCount ? `${routeLink.daysCount} дн.` : 'маршрут'}
+                            {routeLink.distanceKm ? ` · ~${routeLink.distanceKm} км` : ''}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

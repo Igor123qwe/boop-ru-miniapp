@@ -9,6 +9,7 @@ import './FeedPage.css'
 
 type Props = {
   onOpenRoutes: (city: string, routeId?: string) => void
+  onOpenPlace?: (placeId: string) => void
   onCreateRoute?: () => void
   onCreatePlace?: () => void
   onCreateMoment?: () => void
@@ -40,10 +41,12 @@ type FeedPost = {
   publishedAt?: string
   authorId?: string
   authorName?: string
+  authorAvatarUrl?: string
   dayTitle?: string
   dayIndex?: number
   pointIndex?: number
   score?: number
+  routePointId?: string
 }
 
 type FeedApiResponse = {
@@ -54,6 +57,57 @@ type FeedApiResponse = {
   count?: number
   hasMore?: boolean
   nextOffset?: number | null
+}
+
+type PlaceFullPhoto = {
+  id: string
+  place_id: string
+  url: string
+  thumb_url?: string | null
+  is_cover?: boolean
+  sort_order?: number
+}
+
+type PlaceFullRoute = {
+  id: string
+  cityId?: string
+  title: string
+  slug?: string
+  shortDescription?: string
+  description?: string
+  difficulty?: string
+  distanceKm?: number | null
+  daysCount?: number | null
+  popularity?: number
+  coverImage?: string
+  authorId?: string
+  authorName?: string
+  authorAvatarUrl?: string
+  firstDayIndex?: number | null
+  firstPointIndex?: number | null
+  occurrences?: number
+}
+
+type PlaceFullData = {
+  place: {
+    id: string
+    cityId?: string
+    title: string
+    slug?: string
+    normalizedTitle?: string
+    description?: string
+    lat?: number | null
+    lon?: number | null
+    coverImage?: string
+    photosCount?: number
+    createdAt?: string
+    updatedAt?: string
+    authorId?: string
+    authorName?: string
+    authorAvatarUrl?: string
+  }
+  photos: PlaceFullPhoto[]
+  routes: PlaceFullRoute[]
 }
 
 const API_BASE_URL =
@@ -215,6 +269,16 @@ async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
   }
 }
 
+async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
+  const res = await fetch(`${API_BASE_URL}/api/places/${encodeURIComponent(placeId)}/full`)
+  if (!res.ok) return null
+
+  const data = await res.json()
+  if (!data?.ok || !data?.data) return null
+
+  return data.data as PlaceFullData
+}
+
 const formatRelativeDate = (value?: string): string => {
   if (!value) return 'Недавно'
 
@@ -245,6 +309,7 @@ const getPostTypeLabel = (type: FeedPostType): string => {
 
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
+  onOpenPlace,
   onCreateRoute,
   onCreatePlace,
   onCreateMoment,
@@ -262,6 +327,9 @@ export const FeedPage: React.FC<Props> = ({
   const [offset, setOffset] = useState<number>(0)
   const [hasMore, setHasMore] = useState<boolean>(false)
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false)
+
+  const [openedPlaceContext, setOpenedPlaceContext] = useState<PlaceFullData | null>(null)
+  const [isLoadingPlaceContext, setIsLoadingPlaceContext] = useState(false)
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
@@ -313,6 +381,42 @@ export const FeedPage: React.FC<Props> = ({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadPlaceContext = async () => {
+      if (!openedPost || openedPost.type !== 'place' || !openedPost.placeId) {
+        setOpenedPlaceContext(null)
+        setIsLoadingPlaceContext(false)
+        return
+      }
+
+      setIsLoadingPlaceContext(true)
+
+      try {
+        const data = await fetchPlaceFull(openedPost.placeId)
+        if (!cancelled) {
+          setOpenedPlaceContext(data)
+        }
+      } catch (error) {
+        console.error('Place context load error:', error)
+        if (!cancelled) {
+          setOpenedPlaceContext(null)
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPlaceContext(false)
+        }
+      }
+    }
+
+    loadPlaceContext()
+
+    return () => {
+      cancelled = true
+    }
+  }, [openedPost])
 
   const loadMore = async () => {
     if (isLoadingMore || !hasMore) return
@@ -368,9 +472,15 @@ export const FeedPage: React.FC<Props> = ({
   }
 
   const getVisibleImages = (post: FeedPost): string[] => {
-    const source = dedupeImages(
-      post.images?.length ? post.images : post.image ? [post.image] : []
-    )
+    const contextImages =
+      openedPost?.id === post.id && openedPlaceContext?.photos?.length
+        ? openedPlaceContext.photos.map(photo => photo.url || photo.thumb_url || '').filter(Boolean)
+        : []
+
+    const source = dedupeImages([
+      ...contextImages,
+      ...(post.images?.length ? post.images : post.image ? [post.image] : []),
+    ])
 
     const visible = source.filter(img => !failedImages[`${post.id}_${img}`])
 
@@ -419,6 +529,21 @@ export const FeedPage: React.FC<Props> = ({
   const openRouteDirect = (post: FeedPost) => {
     if (!post.routeId) return
     onOpenRoutes(post.city, post.routeId)
+    setOpenedPost(null)
+  }
+
+  const openPlaceDirect = (post: FeedPost) => {
+    if (!post.placeId) return
+    if (onOpenPlace) {
+      onOpenPlace(post.placeId)
+    } else {
+      setOpenedPost(post)
+    }
+  }
+
+  const openRouteFromPlaceContext = (routeId: string) => {
+    if (!openedPost) return
+    onOpenRoutes(openedPost.city, routeId)
     setOpenedPost(null)
   }
 
@@ -587,15 +712,27 @@ export const FeedPage: React.FC<Props> = ({
               💬
             </button>
 
-            <button
-              type="button"
-              className="feed-icon-btn"
-              onClick={() => openRouteDirect(post)}
-              disabled={!post.routeId}
-              title="Открыть маршрут"
-            >
-              🧭
-            </button>
+            {post.type === 'place' ? (
+              <button
+                type="button"
+                className="feed-icon-btn"
+                onClick={() => openPlaceDirect(post)}
+                disabled={!post.placeId}
+                title="Открыть место"
+              >
+                📍
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="feed-icon-btn"
+                onClick={() => openRouteDirect(post)}
+                disabled={!post.routeId}
+                title="Открыть маршрут"
+              >
+                🧭
+              </button>
+            )}
           </div>
 
           <button
@@ -658,17 +795,75 @@ export const FeedPage: React.FC<Props> = ({
               Подробнее
             </button>
 
-            <button
-              type="button"
-              className="feed-open-route-btn"
-              onClick={() => openRouteDirect(post)}
-              disabled={!post.routeId}
-            >
-              Открыть маршрут
-            </button>
+            {post.type === 'place' ? (
+              <button
+                type="button"
+                className="feed-open-route-btn"
+                onClick={() => openPlaceDirect(post)}
+                disabled={!post.placeId}
+              >
+                Открыть место
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="feed-open-route-btn"
+                onClick={() => openRouteDirect(post)}
+                disabled={!post.routeId}
+              >
+                Открыть маршрут
+              </button>
+            )}
           </div>
         </div>
       </article>
+    )
+  }
+
+  const renderPlaceRelations = () => {
+    if (!openedPost || openedPost.type !== 'place') return null
+
+    if (isLoadingPlaceContext) {
+      return <div className="feed-place-relations">Загружаем связи места…</div>
+    }
+
+    if (!openedPlaceContext) return null
+
+    const placeAuthor =
+      openedPlaceContext.place.authorName ||
+      openedPost.authorName ||
+      'Путешественник'
+
+    return (
+      <div className="feed-place-relations">
+        <div className="feed-post-section">
+          <div className="feed-post-section-title">Автор места</div>
+          <div className="feed-post-section-text">{placeAuthor}</div>
+        </div>
+
+        {openedPlaceContext.routes.length > 0 && (
+          <div className="feed-post-section">
+            <div className="feed-post-section-title">Это место есть в маршрутах</div>
+            <div className="feed-linked-routes">
+              {openedPlaceContext.routes.map(route => (
+                <button
+                  key={route.id}
+                  type="button"
+                  className="feed-linked-route"
+                  onClick={() => openRouteFromPlaceContext(route.id)}
+                >
+                  <div className="feed-linked-route-title">{route.title}</div>
+                  <div className="feed-linked-route-meta">
+                    {route.authorName || 'Автор'} ·{' '}
+                    {route.daysCount ? `${route.daysCount} дн.` : 'маршрут'}
+                    {route.distanceKm ? ` · ~${route.distanceKm} км` : ''}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     )
   }
 
@@ -732,6 +927,8 @@ export const FeedPage: React.FC<Props> = ({
               </div>
             )}
 
+            {renderPlaceRelations()}
+
             <div className="feed-post-actions">
               <button
                 type="button"
@@ -749,14 +946,25 @@ export const FeedPage: React.FC<Props> = ({
                 🔖 Сохранить
               </button>
 
-              <button
-                type="button"
-                className="feed-open-route-btn"
-                onClick={() => openRouteDirect(openedPost)}
-                disabled={!openedPost.routeId}
-              >
-                Открыть маршрут
-              </button>
+              {openedPost.type === 'place' ? (
+                <button
+                  type="button"
+                  className="feed-open-route-btn"
+                  onClick={() => openPlaceDirect(openedPost)}
+                  disabled={!openedPost.placeId}
+                >
+                  Открыть место
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="feed-open-route-btn"
+                  onClick={() => openRouteDirect(openedPost)}
+                  disabled={!openedPost.routeId}
+                >
+                  Открыть маршрут
+                </button>
+              )}
             </div>
           </div>
         </div>
