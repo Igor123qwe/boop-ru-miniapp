@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import {
   readSavedPostIds,
   readLikedPostIds,
@@ -114,8 +115,45 @@ const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'http://localhost:3000'
 
+const CLOUD_BASE_URL =
+  (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'https://storage.yandexcloud.net/progid-images-novichihin'
+
 const normalizeText = (value?: string): string => {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+const normalizeCityKey = (city: string): string => {
+  const c = normalizeText(city)
+
+  if (c.includes('калининг')) return 'kaliningrad'
+  if (c.includes('моск')) return 'moscow'
+  if (c.includes('петербург') || c.includes('санкт') || c.includes('спб')) return 'spb'
+  if (c.includes('сочи')) return 'sochi'
+  if (c.includes('казан')) return 'kazan'
+
+  return c
+}
+
+const normalizeCityFolder = (city: string): string => {
+  const c = normalizeText(city)
+
+  if (c.includes('калининг')) return 'калининград'
+  if (c.includes('моск')) return 'москва'
+  if (c.includes('петербург') || c.includes('санкт') || c.includes('спб')) {
+    return 'санкт-петербург'
+  }
+  if (c.includes('сочи')) return 'сочи'
+  if (c.includes('казан')) return 'казань'
+
+  return c
+}
+
+const getCityCoverUrl = (cityFolder: string): string =>
+  `${CLOUD_BASE_URL}/${cityFolder}/city-cover.jpg`
+
+const getAllRoutes = (): PopularRoute[] => {
+  return Object.values(POPULAR_ROUTES).flat()
 }
 
 const declension = (
@@ -207,11 +245,81 @@ const createPlaceholderImage = (title: string, subtitle?: string): string => {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
+const formatRelativeDate = (value?: string): string => {
+  if (!value) return 'Недавно'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Недавно'
+
+  const diffMs = Date.now() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMin < 1) return 'Только что'
+  if (diffMin < 60) return `${diffMin} ${declension('минуту', 'минуты', 'минут', diffMin)} назад`
+  if (diffHours < 24) return `${diffHours} ${declension('час', 'часа', 'часов', diffHours)} назад`
+  if (diffDays < 7) return `${diffDays} ${declension('день', 'дня', 'дней', diffDays)} назад`
+
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: 'short',
+  })
+}
+
+const getPostTypeLabel = (type: FeedPostType): string => {
+  if (type === 'route') return 'Маршрут'
+  if (type === 'moment') return 'Момент'
+  return 'Место'
+}
+
+const routeIndex = new Map<string, PopularRoute>(
+  getAllRoutes().map(route => [route.id, route])
+)
+
+const getRouteFallbackImages = (routeId?: string, city?: string): string[] => {
+  const route = routeId ? routeIndex.get(routeId) : undefined
+  const cityFolder = normalizeCityFolder(route?.city || city || '')
+
+  const localImages = Array.isArray((route as any)?.images)
+    ? ((route as any).images as string[])
+    : []
+
+  const coverImage = (route as any)?.coverImage
+    ? [String((route as any).coverImage)]
+    : []
+
+  const merged = dedupeImages([
+    ...coverImage,
+    ...localImages,
+    cityFolder ? getCityCoverUrl(cityFolder) : '',
+  ])
+
+  return merged
+}
+
+const getPlaceFallbackImages = (post: FeedPost): string[] => {
+  const routeImages = getRouteFallbackImages(post.routeId, post.city)
+  const cityFolder = normalizeCityFolder(post.city || '')
+  const cityCover = cityFolder ? getCityCoverUrl(cityFolder) : ''
+
+  return dedupeImages([
+    ...routeImages,
+    cityCover,
+  ])
+}
+
 const normalizeFeedPost = (post: FeedPost): FeedPost => {
   const normalizedImages = dedupeImages([
     ...(Array.isArray(post.images) ? post.images : []),
     post.image || '',
   ])
+
+  const routeFallbackImages = getRouteFallbackImages(post.routeId, post.city)
+  const placeFallbackImages = post.type === 'place' ? getPlaceFallbackImages(post) : []
+  const fallbackImages = post.type === 'route' ? routeFallbackImages : placeFallbackImages
+
+  const finalImages = normalizedImages.length > 0 ? normalizedImages : fallbackImages
 
   const fallbackSubtitle =
     post.type === 'route' ? `${post.city} · маршрут` : post.city
@@ -224,13 +332,13 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
     placeId: post.placeId ? String(post.placeId) : '',
     cityId: post.cityId ? String(post.cityId) : '',
     city: post.city || '',
-    cityFolder: post.cityFolder || '',
+    cityFolder: post.cityFolder || normalizeCityFolder(post.city || ''),
     title: post.title || 'Без названия',
     description: post.description || '',
     image:
-      normalizedImages[0] ||
+      finalImages[0] ||
       createPlaceholderImage(post.title || 'Без названия', fallbackSubtitle),
-    images: normalizedImages,
+    images: finalImages,
     previewPoints: Array.isArray(post.previewPoints) ? post.previewPoints : [],
     likes: Number(post.likes || 0),
     commentsCount: Number(post.commentsCount || 0),
@@ -277,34 +385,6 @@ async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
   if (!data?.ok || !data?.data) return null
 
   return data.data as PlaceFullData
-}
-
-const formatRelativeDate = (value?: string): string => {
-  if (!value) return 'Недавно'
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Недавно'
-
-  const diffMs = Date.now() - date.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMin < 1) return 'Только что'
-  if (diffMin < 60) return `${diffMin} ${declension('минуту', 'минуты', 'минут', diffMin)} назад`
-  if (diffHours < 24) return `${diffHours} ${declension('час', 'часа', 'часов', diffHours)} назад`
-  if (diffDays < 7) return `${diffDays} ${declension('день', 'дня', 'дней', diffDays)} назад`
-
-  return date.toLocaleDateString('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-  })
-}
-
-const getPostTypeLabel = (type: FeedPostType): string => {
-  if (type === 'route') return 'Маршрут'
-  if (type === 'moment') return 'Момент'
-  return 'Место'
 }
 
 export const FeedPage: React.FC<Props> = ({
@@ -398,6 +478,26 @@ export const FeedPage: React.FC<Props> = ({
         const data = await fetchPlaceFull(openedPost.placeId)
         if (!cancelled) {
           setOpenedPlaceContext(data)
+
+          if (data?.photos?.length) {
+            const contextImages = dedupeImages(
+              data.photos.map(photo => photo.url || photo.thumb_url || '').filter(Boolean)
+            )
+
+            if (contextImages.length > 0) {
+              setFeedPosts(prev =>
+                prev.map(item =>
+                  item.id === openedPost.id
+                    ? {
+                        ...item,
+                        images: dedupeImages([...contextImages, ...item.images]),
+                        image: contextImages[0] || item.image,
+                      }
+                    : item
+                )
+              )
+            }
+          }
         }
       } catch (error) {
         console.error('Place context load error:', error)
@@ -477,14 +577,23 @@ export const FeedPage: React.FC<Props> = ({
         ? openedPlaceContext.photos.map(photo => photo.url || photo.thumb_url || '').filter(Boolean)
         : []
 
-    const source = dedupeImages([
+    const apiAndContextImages = dedupeImages([
       ...contextImages,
       ...(post.images?.length ? post.images : post.image ? [post.image] : []),
     ])
 
-    const visible = source.filter(img => !failedImages[`${post.id}_${img}`])
+    if (apiAndContextImages.length > 0) {
+      const visible = apiAndContextImages.filter(img => !failedImages[`${post.id}_${img}`])
+      if (visible.length > 0) return visible
+    }
 
-    if (visible.length > 0) return visible
+    const fallbackImages =
+      post.type === 'route'
+        ? getRouteFallbackImages(post.routeId, post.city)
+        : getPlaceFallbackImages(post)
+
+    const visibleFallback = fallbackImages.filter(img => !failedImages[`${post.id}_${img}`])
+    if (visibleFallback.length > 0) return visibleFallback
 
     return [createPlaceholderImage(post.title, post.city)]
   }
