@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import {
   readSavedPostIds,
   readLikedPostIds,
@@ -239,6 +240,67 @@ const getPostTypeLabel = (type: FeedPostType): string => {
   return 'Место'
 }
 
+const getAllRoutes = (): PopularRoute[] => {
+  return Object.values(POPULAR_ROUTES).flat()
+}
+
+const countRoutePoints = (route: PopularRoute): number => {
+  return route.days.reduce((sum, day) => sum + day.points.length, 0)
+}
+
+const buildRoutePreview = (route: PopularRoute): string[] => {
+  const points: string[] = []
+
+  for (const day of route.days) {
+    for (const point of day.points) {
+      const title = point.title?.trim()
+      if (!title) continue
+      if (!points.includes(title)) points.push(title)
+      if (points.length >= 5) return points
+    }
+  }
+
+  return points
+}
+
+const buildRoutesMap = (): Map<string, PopularRoute> => {
+  const map = new Map<string, PopularRoute>()
+  for (const route of getAllRoutes()) {
+    map.set(String(route.id), route)
+  }
+  return map
+}
+
+const ROUTES_MAP = buildRoutesMap()
+
+const hydratePostWithRouteMeta = (post: FeedPost): FeedPost & { routeExists: boolean } => {
+  const linkedRoute = post.routeId ? ROUTES_MAP.get(String(post.routeId)) : undefined
+  const routeExists = Boolean(linkedRoute)
+
+  if (!linkedRoute) {
+    return {
+      ...post,
+      routeExists: false,
+    }
+  }
+
+  return {
+    ...post,
+    city: post.city || linkedRoute.city,
+    daysCount: post.daysCount ?? linkedRoute.daysCount,
+    difficulty: post.difficulty ?? linkedRoute.difficulty,
+    distanceKm: post.distanceKm ?? linkedRoute.distanceKm,
+    pointsCount: post.pointsCount ?? countRoutePoints(linkedRoute),
+    previewPoints:
+      post.previewPoints && post.previewPoints.length > 0
+        ? post.previewPoints
+        : buildRoutePreview(linkedRoute),
+    routeExists,
+  }
+}
+
+type ViewFeedPost = FeedPost & { routeExists: boolean }
+
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onCreateRoute,
@@ -249,9 +311,9 @@ export const FeedPage: React.FC<Props> = ({
   const [savedPostIds, setSavedPostIds] = useState<string[]>([])
   const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
-  const [openedPost, setOpenedPost] = useState<FeedPost | null>(null)
+  const [openedPost, setOpenedPost] = useState<ViewFeedPost | null>(null)
 
-  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
+  const [feedPosts, setFeedPosts] = useState<ViewFeedPost[]>([])
   const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true)
   const [feedError, setFeedError] = useState<string>('')
 
@@ -286,7 +348,7 @@ export const FeedPage: React.FC<Props> = ({
 
         if (cancelled) return
 
-        setFeedPosts(data.items || [])
+        setFeedPosts((data.items || []).map(hydratePostWithRouteMeta))
         setOffset(data.nextOffset ?? (data.items?.length || 0))
         setHasMore(Boolean(data.hasMore))
       } catch (error) {
@@ -317,9 +379,10 @@ export const FeedPage: React.FC<Props> = ({
 
     try {
       const data = await fetchFeed(24, offset)
+      const hydrated = (data.items || []).map(hydratePostWithRouteMeta)
 
       setFeedPosts(prev => {
-        const merged = [...prev, ...(data.items || [])]
+        const merged = [...prev, ...hydrated]
         const seen = new Set<string>()
 
         return merged.filter(item => {
@@ -365,7 +428,7 @@ export const FeedPage: React.FC<Props> = ({
     })
   }
 
-  const getVisibleImages = (post: FeedPost): string[] => {
+  const getVisibleImages = (post: ViewFeedPost): string[] => {
     const source = dedupeImages(
       post.images?.length ? post.images : post.image ? [post.image] : []
     )
@@ -414,12 +477,12 @@ export const FeedPage: React.FC<Props> = ({
     }))
   }
 
-  const openRouteDirect = (post: FeedPost) => {
-    if (!post.routeId) return
+  const openRouteDirect = (post: ViewFeedPost) => {
+    if (!post.routeId || !post.routeExists) return
     onOpenRoutes(post.city, post.routeId)
   }
 
-  const renderImageSlider = (post: FeedPost, variant: 'card' | 'modal' = 'card') => {
+  const renderImageSlider = (post: ViewFeedPost, variant: 'card' | 'modal' = 'card') => {
     const visibleImages = getVisibleImages(post)
     const currentImageIndex = getPostImageIndex(post.id, visibleImages.length)
     const currentImage = visibleImages[currentImageIndex] || ''
@@ -490,7 +553,90 @@ export const FeedPage: React.FC<Props> = ({
     )
   }
 
-  const renderCard = (post: FeedPost) => {
+  const renderRouteButton = (post: ViewFeedPost) => {
+    if (!post.routeId) {
+      return (
+        <button
+          type="button"
+          className="feed-open-route-btn is-disabled"
+          disabled
+          title="Для этого поста routeId не пришёл из API"
+        >
+          Маршрут не привязан
+        </button>
+      )
+    }
+
+    if (!post.routeExists) {
+      return (
+        <button
+          type="button"
+          className="feed-open-route-btn is-disabled"
+          disabled
+          title={`Маршрут ${post.routeId} не найден в POPULAR_ROUTES`}
+        >
+          Маршрут не найден
+        </button>
+      )
+    }
+
+    return (
+      <button
+        type="button"
+        className="feed-open-route-btn"
+        onClick={() => openRouteDirect(post)}
+      >
+        Открыть маршрут
+      </button>
+    )
+  }
+
+  const renderStatsGrid = (post: ViewFeedPost, isLiked: boolean) => {
+    return (
+      <div className="feed-post-stats">
+        <div className="feed-post-stat">
+          <div className="feed-post-stat-value">
+            {post.likes + (isLiked ? 1 : 0)}
+          </div>
+          <div className="feed-post-stat-label">Лайков</div>
+        </div>
+
+        {typeof post.pointsCount !== 'undefined' && (
+          <div className="feed-post-stat">
+            <div className="feed-post-stat-value">{post.pointsCount}</div>
+            <div className="feed-post-stat-label">Точек</div>
+          </div>
+        )}
+
+        {typeof post.distanceKm !== 'undefined' && (
+          <div className="feed-post-stat">
+            <div className="feed-post-stat-value">~{post.distanceKm} км</div>
+            <div className="feed-post-stat-label">Дистанция</div>
+          </div>
+        )}
+
+        {post.difficulty && (
+          <div className="feed-post-stat">
+            <div className="feed-post-stat-value">
+              {routeDifficultyLabel(post.difficulty)}
+            </div>
+            <div className="feed-post-stat-label">Сложность</div>
+          </div>
+        )}
+
+        {typeof post.daysCount !== 'undefined' && (
+          <div className="feed-post-stat">
+            <div className="feed-post-stat-value">{post.daysCount}</div>
+            <div className="feed-post-stat-label">
+              {declension('день', 'дня', 'дней', post.daysCount)}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderCard = (post: ViewFeedPost) => {
     const isLiked = likedPostIds.includes(post.id)
     const isSaved = savedPostIds.includes(post.id)
 
@@ -543,7 +689,14 @@ export const FeedPage: React.FC<Props> = ({
               type="button"
               className="feed-icon-btn"
               onClick={() => openRouteDirect(post)}
-              disabled={!post.routeId}
+              disabled={!post.routeId || !post.routeExists}
+              title={
+                !post.routeId
+                  ? 'routeId отсутствует'
+                  : !post.routeExists
+                    ? 'маршрут не найден'
+                    : 'Открыть маршрут'
+              }
             >
               🧭
             </button>
@@ -611,14 +764,7 @@ export const FeedPage: React.FC<Props> = ({
               Подробнее
             </button>
 
-            <button
-              type="button"
-              className="feed-open-route-btn"
-              onClick={() => openRouteDirect(post)}
-              disabled={!post.routeId}
-            >
-              Открыть маршрут
-            </button>
+            {renderRouteButton(post)}
           </div>
         </div>
       </article>
@@ -650,7 +796,9 @@ export const FeedPage: React.FC<Props> = ({
                 {(openedPost.authorName || 'П').slice(0, 1).toUpperCase()}
               </div>
               <div>
-                <div className="feed-card-author-name">{openedPost.authorName || 'Путешественник'}</div>
+                <div className="feed-card-author-name">
+                  {openedPost.authorName || 'Путешественник'}
+                </div>
                 <div className="feed-card-author-subtitle">
                   {openedPost.city} · {formatRelativeDate(openedPost.publishedAt || openedPost.createdAt)}
                 </div>
@@ -668,35 +816,7 @@ export const FeedPage: React.FC<Props> = ({
               <div className="feed-post-description">{openedPost.description}</div>
             )}
 
-            <div className="feed-post-stats">
-              <div className="feed-post-stat">
-                <div className="feed-post-stat-value">
-                  {openedPost.likes + (isLiked ? 1 : 0)}
-                </div>
-                <div className="feed-post-stat-label">Лайков</div>
-              </div>
-
-              <div className="feed-post-stat">
-                <div className="feed-post-stat-value">{openedPost.pointsCount ?? '—'}</div>
-                <div className="feed-post-stat-label">Точек</div>
-              </div>
-
-              <div className="feed-post-stat">
-                <div className="feed-post-stat-value">
-                  {typeof openedPost.distanceKm !== 'undefined'
-                    ? `~${openedPost.distanceKm} км`
-                    : '—'}
-                </div>
-                <div className="feed-post-stat-label">Дистанция</div>
-              </div>
-
-              <div className="feed-post-stat">
-                <div className="feed-post-stat-value">
-                  {openedPost.difficulty ? routeDifficultyLabel(openedPost.difficulty) : '—'}
-                </div>
-                <div className="feed-post-stat-label">Сложность</div>
-              </div>
-            </div>
+            {renderStatsGrid(openedPost, isLiked)}
 
             {openedPost.previewPoints.length > 0 && (
               <div className="feed-post-points">
@@ -728,15 +848,20 @@ export const FeedPage: React.FC<Props> = ({
                 🔖 Сохранить
               </button>
 
-              <button
-                type="button"
-                className="feed-open-route-btn"
-                onClick={() => openRouteDirect(openedPost)}
-                disabled={!openedPost.routeId}
-              >
-                Открыть маршрут
-              </button>
+              {renderRouteButton(openedPost)}
             </div>
+
+            {!openedPost.routeId && (
+              <div className="feed-state-message error" style={{ marginTop: 12 }}>
+                У этого поста нет routeId в ответе /api/feed
+              </div>
+            )}
+
+            {openedPost.routeId && !openedPost.routeExists && (
+              <div className="feed-state-message error" style={{ marginTop: 12 }}>
+                routeId "{openedPost.routeId}" пришёл, но такого маршрута нет в POPULAR_ROUTES
+              </div>
+            )}
           </div>
         </div>
       </div>
