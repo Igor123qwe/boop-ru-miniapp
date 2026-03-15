@@ -112,19 +112,9 @@ type PlaceFullData = {
   routes: PlaceFullRoute[]
 }
 
-const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
-
-const API_BASE_URL = RAW_API_BASE_URL
-  ? RAW_API_BASE_URL.replace(/\/+$/, '')
-  : (typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
-    ? 'http://localhost:3000'
-    : ''
-
-const buildApiUrl = (path: string): string => {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath
-}
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'http://localhost:3000'
 
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -206,10 +196,10 @@ const resolveImageUrl = (url?: string): string => {
   }
 
   if (value.startsWith('/')) {
-    return API_BASE_URL ? `${API_BASE_URL}${value}` : value
+    return `${API_BASE_URL}${value}`
   }
 
-  return API_BASE_URL ? `${API_BASE_URL}/${value.replace(/^\/+/, '')}` : `/${value.replace(/^\/+/, '')}`
+  return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
 }
 
 const dedupeImages = (images: string[]): string[] => {
@@ -366,18 +356,12 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
 }
 
 async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
-  const url = new URL(buildApiUrl('/api/feed'), window.location.origin)
+  const url = new URL(`${API_BASE_URL}/api/feed`)
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('offset', String(offset))
 
-  const res = await fetch(url.toString(), {
-    method: 'GET',
-    credentials: 'omit',
-  })
-
+  const res = await fetch(url.toString())
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    console.error('Feed request failed:', res.status, text, url.toString())
     throw new Error(`Feed request failed: ${res.status}`)
   }
 
@@ -394,20 +378,8 @@ async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
 }
 
 async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
-  const url = new URL(
-    buildApiUrl(`/api/places/${encodeURIComponent(placeId)}/full`),
-    window.location.origin
-  )
-
-  const res = await fetch(url.toString(), {
-    method: 'GET',
-    credentials: 'omit',
-  })
-
-  if (!res.ok) {
-    console.error('Place full request failed:', res.status, url.toString())
-    return null
-  }
+  const res = await fetch(`${API_BASE_URL}/api/places/${encodeURIComponent(placeId)}/full`)
+  if (!res.ok) return null
 
   const data = await res.json()
   if (!data?.ok || !data?.data) return null
@@ -825,8 +797,7 @@ export const FeedPage: React.FC<Props> = ({
   }
 
   const renderMediaGrid = (post: FeedPost) => {
-    const allImages = getVisibleImages(post)
-    const visibleImages = allImages.slice(0, 4)
+    const visibleImages = getVisibleImages(post).slice(0, 4)
     const count = visibleImages.length
 
     if (count <= 0) return null
@@ -881,9 +852,9 @@ export const FeedPage: React.FC<Props> = ({
                 <span className="feed-card-badge">{post.city}</span>
               </div>
             )}
-            {idx === 3 && allImages.length > 4 && (
+            {idx === 3 && getVisibleImages(post).length > 4 && (
               <div className="feed-media-grid-more">
-                +{allImages.length - 4}
+                +{getVisibleImages(post).length - 4}
               </div>
             )}
           </button>
