@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { POPULAR_ROUTES, type PopularRoute } from '../data/popularRoutes'
 import {
   readSavedPostIds,
@@ -227,17 +227,17 @@ const createPlaceholderImage = (title: string, subtitle?: string): string => {
     <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
       <defs>
         <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stop-color="#0f172a"/>
-          <stop offset="100%" stop-color="#334155"/>
+          <stop offset="0%" stop-color="#16181e"/>
+          <stop offset="100%" stop-color="#2a2d35"/>
         </linearGradient>
       </defs>
       <rect width="1200" height="800" fill="url(#g)"/>
-      <circle cx="980" cy="170" r="180" fill="rgba(255,255,255,0.08)"/>
-      <circle cx="180" cy="640" r="220" fill="rgba(255,255,255,0.06)"/>
+      <circle cx="980" cy="170" r="180" fill="rgba(255,255,255,0.06)"/>
+      <circle cx="180" cy="640" r="220" fill="rgba(255,255,255,0.05)"/>
       <text x="80" y="620" font-size="62" font-family="Arial, sans-serif" fill="#ffffff" font-weight="700">
         ${safeTitle}
       </text>
-      <text x="80" y="690" font-size="28" font-family="Arial, sans-serif" fill="rgba(255,255,255,0.78)">
+      <text x="80" y="690" font-size="28" font-family="Arial, sans-serif" fill="rgba(255,255,255,0.75)">
         ${safeSubtitle}
       </text>
     </svg>
@@ -413,6 +413,10 @@ export const FeedPage: React.FC<Props> = ({
   const [isLoadingPlaceContext, setIsLoadingPlaceContext] = useState(false)
 
   const [activeTab, setActiveTab] = useState<FeedTabType>('all')
+  const [isCityMenuOpen, setIsCityMenuOpen] = useState(false)
+  const [selectedCityKeys, setSelectedCityKeys] = useState<string[]>([])
+
+  const cityMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
@@ -428,6 +432,18 @@ export const FeedPage: React.FC<Props> = ({
       document.body.style.overflow = prevOverflow
     }
   }, [openedPost])
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (!cityMenuRef.current) return
+      if (!cityMenuRef.current.contains(event.target as Node)) {
+        setIsCityMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -550,33 +566,92 @@ export const FeedPage: React.FC<Props> = ({
     }
   }
 
+  const availableCities = useMemo(() => {
+    const map = new Map<string, string>()
+
+    for (const post of feedPosts) {
+      const key = normalizeCityKey(post.city || '')
+      const title = (post.city || '').trim()
+      if (!key || !title) continue
+      if (!map.has(key)) map.set(key, title)
+    }
+
+    return Array.from(map.entries())
+      .map(([key, title]) => ({ key, title }))
+      .sort((a, b) => a.title.localeCompare(b.title, 'ru'))
+  }, [feedPosts])
+
+  useEffect(() => {
+    if (availableCities.length === 0) return
+
+    setSelectedCityKeys(prev => {
+      if (prev.length === 0) {
+        return availableCities.map(city => city.key)
+      }
+
+      const availableKeys = new Set(availableCities.map(city => city.key))
+      const cleaned = prev.filter(key => availableKeys.has(key))
+
+      if (cleaned.length === 0) {
+        return availableCities.map(city => city.key)
+      }
+
+      const missing = availableCities
+        .map(city => city.key)
+        .filter(key => !cleaned.includes(key))
+
+      return [...cleaned, ...missing.filter(() => false)]
+    })
+  }, [availableCities])
+
+  const allCitiesSelected =
+    availableCities.length > 0 &&
+    availableCities.every(city => selectedCityKeys.includes(city.key))
+
+  const toggleCity = (cityKey: string) => {
+    setSelectedCityKeys(prev => {
+      if (prev.includes(cityKey)) {
+        if (prev.length === 1) return prev
+        return prev.filter(key => key !== cityKey)
+      }
+      return [...prev, cityKey]
+    })
+  }
+
+  const toggleAllCities = () => {
+    setSelectedCityKeys(prev => {
+      if (availableCities.length === 0) return prev
+      if (allCitiesSelected) {
+        return [availableCities[0].key]
+      }
+      return availableCities.map(city => city.key)
+    })
+  }
+
   const composerItems = [
     {
       key: 'route',
       title: 'Собрать маршрут',
-      subtitle: 'Дни, точки, фото и готовый план поездки',
+      subtitle: 'Сценарий поездки, точки и ритм дня',
       icon: '🧭',
       onClick: onCreateRoute,
       available: Boolean(onCreateRoute),
-      accent: 'primary',
     },
     {
       key: 'place',
       title: 'Показать место',
-      subtitle: 'Локация, фото и короткая история',
+      subtitle: 'Локация, фото и короткая рекомендация',
       icon: '📍',
       onClick: onCreatePlace,
       available: Boolean(onCreatePlace),
-      accent: 'secondary',
     },
     {
       key: 'moment',
       title: 'Поймать момент',
-      subtitle: 'Быстрая публикация из путешествия',
-      icon: '✨',
+      subtitle: 'Быстрый пост из дороги или прогулки',
+      icon: '✦',
       onClick: onCreateMoment,
       available: Boolean(onCreateMoment),
-      accent: 'ghost',
     },
   ].filter(item => item.available)
 
@@ -589,16 +664,25 @@ export const FeedPage: React.FC<Props> = ({
   ]
 
   const visibleFeedPosts = useMemo(() => {
-    if (activeTab === 'all') return feedPosts
-    if (activeTab === 'routes') return feedPosts.filter(item => item.type === 'route')
-    if (activeTab === 'places') return feedPosts.filter(item => item.type === 'place')
-    if (activeTab === 'moments') return feedPosts.filter(item => item.type === 'moment')
-    if (activeTab === 'nearby') {
-      const preferredCityKeys = new Set(['kaliningrad', 'калининград'])
-      return feedPosts.filter(item => preferredCityKeys.has(normalizeCityKey(item.city)))
+    let items = [...feedPosts]
+
+    if (activeTab === 'routes') {
+      items = items.filter(item => item.type === 'route')
+    } else if (activeTab === 'places') {
+      items = items.filter(item => item.type === 'place')
+    } else if (activeTab === 'moments') {
+      items = items.filter(item => item.type === 'moment')
+    } else if (activeTab === 'nearby') {
+      items = items.filter(item => normalizeCityKey(item.city) === 'kaliningrad')
     }
-    return feedPosts
-  }, [feedPosts, activeTab])
+
+    if (selectedCityKeys.length > 0) {
+      const selectedSet = new Set(selectedCityKeys)
+      items = items.filter(item => selectedSet.has(normalizeCityKey(item.city)))
+    }
+
+    return items
+  }, [feedPosts, activeTab, selectedCityKeys])
 
   const toggleLike = (postId: string) => {
     setLikedPostIds(prev => {
@@ -881,7 +965,7 @@ export const FeedPage: React.FC<Props> = ({
               className={`feed-icon-btn ${isLiked ? 'active' : ''}`}
               onClick={() => toggleLike(post.id)}
             >
-              ❤️
+              ♡
             </button>
 
             <button
@@ -889,7 +973,7 @@ export const FeedPage: React.FC<Props> = ({
               className="feed-icon-btn"
               onClick={() => setOpenedPost(post)}
             >
-              💬
+              ⌕
             </button>
 
             {post.type === 'place' ? (
@@ -901,7 +985,7 @@ export const FeedPage: React.FC<Props> = ({
                   disabled={!post.placeId}
                   title="Открыть место"
                 >
-                  📍
+                  ⌖
                 </button>
 
                 {hasRouteForPlace && (
@@ -911,7 +995,7 @@ export const FeedPage: React.FC<Props> = ({
                     onClick={() => openPrimaryRouteForPlace(post)}
                     title="Открыть маршрут"
                   >
-                    🧭
+                    ↗
                   </button>
                 )}
               </>
@@ -923,7 +1007,7 @@ export const FeedPage: React.FC<Props> = ({
                 disabled={!post.routeId}
                 title="Открыть маршрут"
               >
-                🧭
+                ↗
               </button>
             )}
           </div>
@@ -933,7 +1017,7 @@ export const FeedPage: React.FC<Props> = ({
             className={`feed-icon-btn ${isSaved ? 'active' : ''}`}
             onClick={() => toggleSave(post.id)}
           >
-            🔖
+            ⌑
           </button>
         </div>
 
@@ -1147,7 +1231,7 @@ export const FeedPage: React.FC<Props> = ({
                 className={`feed-action-btn ${isLiked ? 'active' : ''}`}
                 onClick={() => toggleLike(openedPost.id)}
               >
-                ❤️ {openedPost.likes + (isLiked ? 1 : 0)}
+                Нравится · {openedPost.likes + (isLiked ? 1 : 0)}
               </button>
 
               <button
@@ -1155,7 +1239,7 @@ export const FeedPage: React.FC<Props> = ({
                 className={`feed-action-btn ${isSaved ? 'active' : ''}`}
                 onClick={() => toggleSave(openedPost.id)}
               >
-                🔖 Сохранить
+                Сохранить
               </button>
 
               {openedPost.type === 'place' ? (
@@ -1200,60 +1284,97 @@ export const FeedPage: React.FC<Props> = ({
       <div className="feed-topbar-sticky">
         <div className="feed-topbar">
           <div className="feed-topbar-main">
-            <div>
+            <div className="feed-title-wrap">
               <h1 className="feed-page-title">Лента</h1>
               <div className="feed-subtitle">
-                Маршруты, места и живые моменты путешественников
+                Маршруты, места и впечатления путешественников
               </div>
             </div>
-
-            <button
-              type="button"
-              className="feed-topbar-search"
-              aria-label="Поиск"
-            >
-              🔎
-            </button>
           </div>
 
-          <div className="feed-quick-tabs" role="tablist" aria-label="Типы публикаций">
-            {quickTabs.map(tab => (
+          <div className="feed-topbar-row">
+            <div className="feed-quick-tabs" role="tablist" aria-label="Типы публикаций">
+              {quickTabs.map(tab => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={`feed-quick-tab ${activeTab === tab.key ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="feed-city-filter" ref={cityMenuRef}>
               <button
-                key={tab.key}
                 type="button"
-                className={`feed-quick-tab ${activeTab === tab.key ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.key)}
+                className={`feed-filter-toggle ${isCityMenuOpen ? 'open' : ''}`}
+                onClick={() => setIsCityMenuOpen(prev => !prev)}
+                aria-label="Фильтр городов"
               >
-                {tab.label}
+                ☰
               </button>
-            ))}
+
+              {isCityMenuOpen && (
+                <div className="feed-city-menu">
+                  <div className="feed-city-menu-head">
+                    <div className="feed-city-menu-title">Города в ленте</div>
+                    <button
+                      type="button"
+                      className="feed-city-menu-action"
+                      onClick={toggleAllCities}
+                    >
+                      {allCitiesSelected ? 'Оставить один' : 'Выбрать все'}
+                    </button>
+                  </div>
+
+                  <div className="feed-city-menu-list">
+                    {availableCities.map(city => {
+                      const checked = selectedCityKeys.includes(city.key)
+
+                      return (
+                        <label key={city.key} className="feed-city-option">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCity(city.key)}
+                          />
+                          <span>{city.title}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="feed-shell fullbleed">
-        <section className="feed-hero-composer">
-          <div className="feed-hero-head">
-            <div className="feed-hero-avatar">🌍</div>
-            <div className="feed-hero-texts">
-              <div className="feed-hero-title">Поделись поездкой</div>
-              <div className="feed-hero-subtitle">
-                Собери маршрут, покажи интересное место или поймай момент из путешествия
-              </div>
+      <div className="feed-shell">
+        <section className="feed-composer-strip">
+          <div className="feed-composer-intro">
+            <div className="feed-composer-kicker">Новый пост</div>
+            <div className="feed-composer-title">Поделись своей поездкой</div>
+            <div className="feed-composer-subtitle">
+              Без перегруза — короткий маршрут, место или живой момент
             </div>
           </div>
 
-          <div className="feed-composer-grid">
+          <div className="feed-composer-actions">
             {composerItems.map(item => (
               <button
                 key={item.key}
                 type="button"
-                className={`feed-composer-card ${item.accent}`}
+                className="feed-composer-action"
                 onClick={item.onClick}
               >
-                <div className="feed-composer-icon">{item.icon}</div>
-                <div className="feed-composer-card-title">{item.title}</div>
-                <div className="feed-composer-card-subtitle">{item.subtitle}</div>
+                <span className="feed-composer-action-icon">{item.icon}</span>
+                <span className="feed-composer-action-text">
+                  <span className="feed-composer-action-title">{item.title}</span>
+                  <span className="feed-composer-action-subtitle">{item.subtitle}</span>
+                </span>
               </button>
             ))}
           </div>
@@ -1268,7 +1389,7 @@ export const FeedPage: React.FC<Props> = ({
         )}
 
         {!isLoadingFeed && !feedError && visibleFeedPosts.length === 0 && (
-          <div className="feed-state-message">В ленте пока нет публикаций</div>
+          <div className="feed-state-message">В ленте пока нет публикаций по выбранным городам</div>
         )}
 
         <div className="feed-list">
