@@ -112,10 +112,28 @@ type PlaceFullData = {
   routes: PlaceFullRoute[]
 }
 
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'http://localhost:3000'
+const API_BASE_URL = (() => {
 
+  const env = import.meta.env.VITE_API_BASE_URL
+
+  if (env) {
+    return env.replace(/\/$/, '')
+  }
+
+  if (typeof window !== "undefined") {
+
+    const host = window.location.hostname
+
+    if (host === "localhost" || host === "127.0.0.1") {
+      return "http://localhost:3000"
+    }
+
+    // production
+    return window.location.origin
+  }
+
+  return ""
+})()
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images-novichihin'
