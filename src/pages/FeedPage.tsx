@@ -227,17 +227,17 @@ const createPlaceholderImage = (title: string, subtitle?: string): string => {
     <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
       <defs>
         <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stop-color="#16181e"/>
-          <stop offset="100%" stop-color="#2a2d35"/>
+          <stop offset="0%" stop-color="#ece5db"/>
+          <stop offset="100%" stop-color="#d9d2c8"/>
         </linearGradient>
       </defs>
       <rect width="1200" height="800" fill="url(#g)"/>
-      <circle cx="980" cy="170" r="180" fill="rgba(255,255,255,0.06)"/>
-      <circle cx="180" cy="640" r="220" fill="rgba(255,255,255,0.05)"/>
-      <text x="80" y="620" font-size="62" font-family="Arial, sans-serif" fill="#ffffff" font-weight="700">
+      <circle cx="980" cy="170" r="180" fill="rgba(255,255,255,0.28)"/>
+      <circle cx="180" cy="640" r="220" fill="rgba(255,255,255,0.18)"/>
+      <text x="80" y="620" font-size="62" font-family="Arial, sans-serif" fill="#1f2937" font-weight="700">
         ${safeTitle}
       </text>
-      <text x="80" y="690" font-size="28" font-family="Arial, sans-serif" fill="rgba(255,255,255,0.75)">
+      <text x="80" y="690" font-size="28" font-family="Arial, sans-serif" fill="rgba(31,41,55,0.72)">
         ${safeSubtitle}
       </text>
     </svg>
@@ -319,7 +319,6 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
   const routeFallbackImages = getRouteFallbackImages(post.routeId, post.city)
   const placeFallbackImages = post.type === 'place' ? getPlaceFallbackImages(post) : []
   const fallbackImages = post.type === 'route' ? routeFallbackImages : placeFallbackImages
-
   const finalImages = normalizedImages.length > 0 ? normalizedImages : fallbackImages
 
   const fallbackSubtitle =
@@ -596,11 +595,7 @@ export const FeedPage: React.FC<Props> = ({
         return availableCities.map(city => city.key)
       }
 
-      const missing = availableCities
-        .map(city => city.key)
-        .filter(key => !cleaned.includes(key))
-
-      return [...cleaned, ...missing.filter(() => false)]
+      return cleaned
     })
   }, [availableCities])
 
@@ -627,33 +622,6 @@ export const FeedPage: React.FC<Props> = ({
       return availableCities.map(city => city.key)
     })
   }
-
-  const composerItems = [
-    {
-      key: 'route',
-      title: 'Собрать маршрут',
-      subtitle: 'Сценарий поездки, точки и ритм дня',
-      icon: '🧭',
-      onClick: onCreateRoute,
-      available: Boolean(onCreateRoute),
-    },
-    {
-      key: 'place',
-      title: 'Показать место',
-      subtitle: 'Локация, фото и короткая рекомендация',
-      icon: '📍',
-      onClick: onCreatePlace,
-      available: Boolean(onCreatePlace),
-    },
-    {
-      key: 'moment',
-      title: 'Поймать момент',
-      subtitle: 'Быстрый пост из дороги или прогулки',
-      icon: '✦',
-      onClick: onCreateMoment,
-      available: Boolean(onCreateMoment),
-    },
-  ].filter(item => item.available)
 
   const quickTabs: { key: FeedTabType; label: string }[] = [
     { key: 'all', label: 'Для тебя' },
@@ -683,6 +651,27 @@ export const FeedPage: React.FC<Props> = ({
 
     return items
   }, [feedPosts, activeTab, selectedCityKeys])
+
+  const composerActions = [
+    {
+      key: 'route',
+      label: 'Добавить маршрут',
+      onClick: onCreateRoute,
+      visible: Boolean(onCreateRoute),
+    },
+    {
+      key: 'place',
+      label: 'Поделиться местом',
+      onClick: onCreatePlace,
+      visible: Boolean(onCreatePlace),
+    },
+    {
+      key: 'moment',
+      label: 'Момент',
+      onClick: onCreateMoment,
+      visible: Boolean(onCreateMoment),
+    },
+  ].filter(item => item.visible)
 
   const toggleLike = (postId: string) => {
     setLikedPostIds(prev => {
@@ -807,14 +796,84 @@ export const FeedPage: React.FC<Props> = ({
     }
   }
 
+  const renderMediaGrid = (post: FeedPost) => {
+    const visibleImages = getVisibleImages(post).slice(0, 4)
+    const count = visibleImages.length
+
+    if (count <= 0) return null
+
+    const openPost = () => setOpenedPost(post)
+
+    if (count === 1) {
+      return (
+        <button type="button" className="feed-media-grid single" onClick={openPost}>
+          <img
+            src={visibleImages[0]}
+            alt={post.title}
+            className="feed-media-grid-image"
+            onError={() => {
+              setFailedImages(prev => ({
+                ...prev,
+                [`${post.id}_${visibleImages[0]}`]: true,
+              }))
+            }}
+          />
+          <div className="feed-card-badges">
+            <span className="feed-card-badge primary">{getPostTypeLabel(post.type)}</span>
+            <span className="feed-card-badge">{post.city}</span>
+          </div>
+        </button>
+      )
+    }
+
+    return (
+      <div className={`feed-media-grid count-${count}`}>
+        {visibleImages.map((img, idx) => (
+          <button
+            key={`${post.id}_${img}_${idx}`}
+            type="button"
+            className="feed-media-grid-item"
+            onClick={openPost}
+          >
+            <img
+              src={img}
+              alt={`${post.title} ${idx + 1}`}
+              className="feed-media-grid-image"
+              onError={() => {
+                setFailedImages(prev => ({
+                  ...prev,
+                  [`${post.id}_${img}`]: true,
+                }))
+              }}
+            />
+            {idx === 0 && (
+              <div className="feed-card-badges">
+                <span className="feed-card-badge primary">{getPostTypeLabel(post.type)}</span>
+                <span className="feed-card-badge">{post.city}</span>
+              </div>
+            )}
+            {idx === 3 && getVisibleImages(post).length > 4 && (
+              <div className="feed-media-grid-more">
+                +{getVisibleImages(post).length - 4}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   const renderImageSlider = (post: FeedPost, variant: 'card' | 'modal' = 'card') => {
+    if (variant === 'card') {
+      return renderMediaGrid(post)
+    }
+
     const visibleImages = getVisibleImages(post)
     const currentImageIndex = getPostImageIndex(post.id, visibleImages.length)
     const currentImage = visibleImages[currentImageIndex] || ''
-    const isModal = variant === 'modal'
 
     return (
-      <div className={isModal ? 'feed-post-image-wrap' : 'feed-card-media'}>
+      <div className="feed-post-image-wrap">
         {visibleImages.length > 1 && (
           <button
             type="button"
@@ -831,7 +890,7 @@ export const FeedPage: React.FC<Props> = ({
         <img
           src={currentImage}
           alt={post.title}
-          className={isModal ? 'feed-post-image' : 'feed-card-image'}
+          className="feed-post-image"
           onError={() => {
             setFailedImages(prev => ({
               ...prev,
@@ -956,79 +1015,7 @@ export const FeedPage: React.FC<Props> = ({
           </button>
         </div>
 
-        {renderImageSlider(post, 'card')}
-
-        <div className="feed-card-actions-top">
-          <div className="feed-card-actions-left">
-            <button
-              type="button"
-              className={`feed-icon-btn ${isLiked ? 'active' : ''}`}
-              onClick={() => toggleLike(post.id)}
-            >
-              ♡
-            </button>
-
-            <button
-              type="button"
-              className="feed-icon-btn"
-              onClick={() => setOpenedPost(post)}
-            >
-              ⌕
-            </button>
-
-            {post.type === 'place' ? (
-              <>
-                <button
-                  type="button"
-                  className="feed-icon-btn"
-                  onClick={() => openPlaceDirect(post)}
-                  disabled={!post.placeId}
-                  title="Открыть место"
-                >
-                  ⌖
-                </button>
-
-                {hasRouteForPlace && (
-                  <button
-                    type="button"
-                    className="feed-icon-btn"
-                    onClick={() => openPrimaryRouteForPlace(post)}
-                    title="Открыть маршрут"
-                  >
-                    ↗
-                  </button>
-                )}
-              </>
-            ) : (
-              <button
-                type="button"
-                className="feed-icon-btn"
-                onClick={() => openRouteDirect(post)}
-                disabled={!post.routeId}
-                title="Открыть маршрут"
-              >
-                ↗
-              </button>
-            )}
-          </div>
-
-          <button
-            type="button"
-            className={`feed-icon-btn ${isSaved ? 'active' : ''}`}
-            onClick={() => toggleSave(post.id)}
-          >
-            ⌑
-          </button>
-        </div>
-
         <div className="feed-card-content">
-          <div className="feed-card-stats-line">
-            <strong>{post.likes + (isLiked ? 1 : 0)}</strong> нравится
-            {typeof post.commentsCount === 'number' && post.commentsCount > 0 && (
-              <span className="feed-muted-inline"> · {post.commentsCount} комментариев</span>
-            )}
-          </div>
-
           <h3 className="feed-card-title">{post.title}</h3>
 
           {post.description && (
@@ -1050,6 +1037,80 @@ export const FeedPage: React.FC<Props> = ({
               <span className="feed-meta-chip">
                 {post.daysCount} {declension('день', 'дня', 'дней', post.daysCount)}
               </span>
+            )}
+          </div>
+        </div>
+
+        {renderImageSlider(post, 'card')}
+
+        <div className="feed-card-actions-top">
+          <div className="feed-card-actions-left">
+            <button
+              type="button"
+              className={`feed-icon-btn ${isLiked ? 'active' : ''}`}
+              onClick={() => toggleLike(post.id)}
+            >
+              ♡
+            </button>
+
+            <button
+              type="button"
+              className="feed-icon-btn"
+              onClick={() => setOpenedPost(post)}
+            >
+              💬
+            </button>
+
+            {post.type === 'place' ? (
+              <>
+                <button
+                  type="button"
+                  className="feed-icon-btn"
+                  onClick={() => openPlaceDirect(post)}
+                  disabled={!post.placeId}
+                  title="Открыть место"
+                >
+                  📍
+                </button>
+
+                {hasRouteForPlace && (
+                  <button
+                    type="button"
+                    className="feed-icon-btn"
+                    onClick={() => openPrimaryRouteForPlace(post)}
+                    title="Открыть маршрут"
+                  >
+                    🧭
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                className="feed-icon-btn"
+                onClick={() => openRouteDirect(post)}
+                disabled={!post.routeId}
+                title="Открыть маршрут"
+              >
+                🧭
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className={`feed-icon-btn ${isSaved ? 'active' : ''}`}
+            onClick={() => toggleSave(post.id)}
+          >
+            🔖
+          </button>
+        </div>
+
+        <div className="feed-card-content feed-card-content-bottom">
+          <div className="feed-card-stats-line">
+            <strong>{post.likes + (isLiked ? 1 : 0)}</strong> нравится
+            {typeof post.commentsCount === 'number' && post.commentsCount > 0 && (
+              <span className="feed-muted-inline"> · {post.commentsCount} комментариев</span>
             )}
           </div>
 
@@ -1353,30 +1414,26 @@ export const FeedPage: React.FC<Props> = ({
       </div>
 
       <div className="feed-shell">
-        <section className="feed-composer-strip">
-          <div className="feed-composer-intro">
-            <div className="feed-composer-kicker">Новый пост</div>
-            <div className="feed-composer-title">Поделись своей поездкой</div>
-            <div className="feed-composer-subtitle">
-              Без перегруза — короткий маршрут, место или живой момент
-            </div>
-          </div>
+        <section className="feed-composer">
+          <div className="feed-composer-avatar">✈️</div>
 
-          <div className="feed-composer-actions">
-            {composerItems.map(item => (
-              <button
-                key={item.key}
-                type="button"
-                className="feed-composer-action"
-                onClick={item.onClick}
-              >
-                <span className="feed-composer-action-icon">{item.icon}</span>
-                <span className="feed-composer-action-text">
-                  <span className="feed-composer-action-title">{item.title}</span>
-                  <span className="feed-composer-action-subtitle">{item.subtitle}</span>
-                </span>
-              </button>
-            ))}
+          <div className="feed-composer-main">
+            <div className="feed-composer-input-row">
+              <div className="feed-composer-placeholder">Поделитесь поездкой или интересным местом</div>
+            </div>
+
+            <div className="feed-composer-actions">
+              {composerActions.map(item => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className="feed-composer-action"
+                  onClick={item.onClick}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
         </section>
 
