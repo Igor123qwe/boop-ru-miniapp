@@ -113,22 +113,18 @@ type PlaceFullData = {
 }
 
 const getApiBaseUrl = (): string => {
-  const env = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
-  if (env) {
-    return env.replace(/\/$/, '')
+  const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
+
+  if (envBase) {
+    return envBase.replace(/\/$/, '')
   }
 
   if (typeof window !== 'undefined') {
     const host = window.location.hostname
 
-    // локальная разработка
     if (host === 'localhost' || host === '127.0.0.1') {
       return 'http://localhost:3000'
     }
-
-    // production/staging:
-    // используем относительные /api/... чтобы работало и на телефоне, и на ПК
-    return ''
   }
 
   return ''
@@ -140,19 +136,19 @@ const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   'https://storage.yandexcloud.net/progid-images-novichihin'
 
-const buildApiUrl = (
-  path: string,
-  query?: Record<string, string | number | boolean | null | undefined>
-): string => {
+const buildApiUrl = (path: string, params?: Record<string, string | number | undefined>) => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`
-  const base =
-    API_BASE_URL ||
-    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
 
-  const url = new URL(cleanPath, base)
+  if (!API_BASE_URL) {
+    throw new Error(
+      `VITE_API_BASE_URL не задан. Для production укажи адрес backend, например https://your-api-domain.com`
+    )
+  }
 
-  if (query) {
-    Object.entries(query).forEach(([key, value]) => {
+  const url = new URL(`${API_BASE_URL}${cleanPath}`)
+
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return
       url.searchParams.set(key, String(value))
     })
@@ -237,15 +233,12 @@ const resolveImageUrl = (url?: string): string => {
   }
 
   if (value.startsWith('/')) {
-    if (!API_BASE_URL) return value
-    return `${API_BASE_URL}${value}`
+    return API_BASE_URL ? `${API_BASE_URL}${value}` : value
   }
 
-  if (!API_BASE_URL) {
-    return `/${value.replace(/^\/+/, '')}`
-  }
-
-  return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
+  return API_BASE_URL
+    ? `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
+    : value
 }
 
 const dedupeImages = (images: string[]): string[] => {
@@ -336,13 +329,11 @@ const getRouteFallbackImages = (routeId?: string, city?: string): string[] => {
     ? [String((route as any).coverImage)]
     : []
 
-  const merged = dedupeImages([
+  return dedupeImages([
     ...coverImage,
     ...localImages,
     cityFolder ? getCityCoverUrl(cityFolder) : '',
   ])
-
-  return merged
 }
 
 const getPlaceFallbackImages = (post: FeedPost): string[] => {
@@ -401,63 +392,28 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
   }
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const res = await fetch(buildApiUrl(path), {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  })
-
-  if (!res.ok) {
-    let bodyText = ''
-    try {
-      bodyText = await res.text()
-    } catch {
-      bodyText = ''
-    }
-
-    console.error(`Request failed for ${path}:`, res.status, bodyText)
-    throw new Error(`Request failed: ${res.status}`)
-  }
-
-  return res.json() as Promise<T>
-}
-
 async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
   const url = buildApiUrl('/api/feed', {
     limit,
     offset,
   })
 
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  })
+  const res = await fetch(url)
 
   if (!res.ok) {
-    let bodyText = ''
-    try {
-      bodyText = await res.text()
-    } catch {
-      bodyText = ''
-    }
-
-    console.error('Feed request failed:', {
+    const text = await res.text().catch(() => '')
+    console.error('[FeedPage] /api/feed failed', {
       url,
       status: res.status,
-      bodyText,
+      text,
     })
-
     throw new Error(`Feed request failed: ${res.status}`)
   }
 
   const data = (await res.json()) as FeedApiResponse
 
   if (!data.ok) {
-    console.error('Feed API returned ok=false:', data)
+    console.error('[FeedPage] Feed API returned ok=false', data)
     throw new Error('Feed API returned ok=false')
   }
 
@@ -468,17 +424,23 @@ async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
 }
 
 async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
-  try {
-    const data = await fetchJson<{ ok?: boolean; data?: PlaceFullData }>(
-      `/api/places/${encodeURIComponent(placeId)}/full`
-    )
+  const url = buildApiUrl(`/api/places/${encodeURIComponent(placeId)}/full`)
+  const res = await fetch(url)
 
-    if (!data?.ok || !data?.data) return null
-    return data.data as PlaceFullData
-  } catch (error) {
-    console.error('Place full request failed:', error)
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    console.error('[FeedPage] /api/places/:id/full failed', {
+      url,
+      status: res.status,
+      text,
+    })
     return null
   }
+
+  const data = await res.json()
+  if (!data?.ok || !data?.data) return null
+
+  return data.data as PlaceFullData
 }
 
 export const FeedPage: React.FC<Props> = ({
@@ -554,9 +516,8 @@ export const FeedPage: React.FC<Props> = ({
         setOffset(data.nextOffset ?? (data.items?.length || 0))
         setHasMore(Boolean(data.hasMore))
       } catch (error) {
-        console.error('Feed load error:', error)
-        console.error('API_BASE_URL:', API_BASE_URL)
-        console.error('Feed URL:', buildApiUrl('/api/feed', { limit: 24, offset: 0 }))
+        console.error('[FeedPage] Feed load error:', error)
+        console.error('[FeedPage] API_BASE_URL:', API_BASE_URL)
 
         if (!cancelled) {
           setFeedPosts([])
