@@ -206,10 +206,10 @@ const resolveImageUrl = (url?: string): string => {
   }
 
   if (value.startsWith('/')) {
-    return `${API_BASE_URL}${value}`
+    return API_BASE_URL ? `${API_BASE_URL}${value}` : value
   }
 
-  return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`
+  return API_BASE_URL ? `${API_BASE_URL}/${value.replace(/^\/+/, '')}` : `/${value.replace(/^\/+/, '')}`
 }
 
 const dedupeImages = (images: string[]): string[] => {
@@ -377,7 +377,7 @@ async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    console.error('Feed request failed:', res.status, text)
+    console.error('Feed request failed:', res.status, text, url.toString())
     throw new Error(`Feed request failed: ${res.status}`)
   }
 
@@ -394,21 +394,27 @@ async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
 }
 
 async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
-  const res = await fetch(
+  const url = new URL(
     buildApiUrl(`/api/places/${encodeURIComponent(placeId)}/full`),
-    {
-      method: 'GET',
-      credentials: 'omit',
-    }
+    window.location.origin
   )
 
-  if (!res.ok) return null
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    credentials: 'omit',
+  })
+
+  if (!res.ok) {
+    console.error('Place full request failed:', res.status, url.toString())
+    return null
+  }
 
   const data = await res.json()
   if (!data?.ok || !data?.data) return null
 
   return data.data as PlaceFullData
 }
+
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onOpenPlace,
@@ -819,7 +825,8 @@ export const FeedPage: React.FC<Props> = ({
   }
 
   const renderMediaGrid = (post: FeedPost) => {
-    const visibleImages = getVisibleImages(post).slice(0, 4)
+    const allImages = getVisibleImages(post)
+    const visibleImages = allImages.slice(0, 4)
     const count = visibleImages.length
 
     if (count <= 0) return null
@@ -874,9 +881,9 @@ export const FeedPage: React.FC<Props> = ({
                 <span className="feed-card-badge">{post.city}</span>
               </div>
             )}
-            {idx === 3 && getVisibleImages(post).length > 4 && (
+            {idx === 3 && allImages.length > 4 && (
               <div className="feed-media-grid-more">
-                +{getVisibleImages(post).length - 4}
+                +{allImages.length - 4}
               </div>
             )}
           </button>
