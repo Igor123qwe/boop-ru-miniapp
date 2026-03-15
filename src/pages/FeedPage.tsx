@@ -185,10 +185,11 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
     score: post.score != null ? Number(post.score) : 0,
     createdAt: post.createdAt || new Date().toISOString(),
     publishedAt: post.publishedAt || post.createdAt || new Date().toISOString(),
+    authorName: post.authorName || 'Путешественник',
   }
 }
 
-async function fetchFeed(limit = 50, offset = 0): Promise<FeedApiResponse> {
+async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
   const url = new URL(`${API_BASE_URL}/api/feed`)
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('offset', String(offset))
@@ -208,6 +209,34 @@ async function fetchFeed(limit = 50, offset = 0): Promise<FeedApiResponse> {
     ...data,
     items: Array.isArray(data.items) ? data.items.map(normalizeFeedPost) : [],
   }
+}
+
+const formatRelativeDate = (value?: string): string => {
+  if (!value) return 'Недавно'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Недавно'
+
+  const diffMs = Date.now() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMin < 1) return 'Только что'
+  if (diffMin < 60) return `${diffMin} ${declension('минуту', 'минуты', 'минут', diffMin)} назад`
+  if (diffHours < 24) return `${diffHours} ${declension('час', 'часа', 'часов', diffHours)} назад`
+  if (diffDays < 7) return `${diffDays} ${declension('день', 'дня', 'дней', diffDays)} назад`
+
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: 'short',
+  })
+}
+
+const getPostTypeLabel = (type: FeedPostType): string => {
+  if (type === 'route') return 'Маршрут'
+  if (type === 'moment') return 'Момент'
+  return 'Место'
 }
 
 export const FeedPage: React.FC<Props> = ({
@@ -253,7 +282,7 @@ export const FeedPage: React.FC<Props> = ({
       setFeedError('')
 
       try {
-        const data = await fetchFeed(50, 0)
+        const data = await fetchFeed(24, 0)
 
         if (cancelled) return
 
@@ -287,11 +316,12 @@ export const FeedPage: React.FC<Props> = ({
     setIsLoadingMore(true)
 
     try {
-      const data = await fetchFeed(50, offset)
+      const data = await fetchFeed(24, offset)
 
       setFeedPosts(prev => {
         const merged = [...prev, ...(data.items || [])]
         const seen = new Set<string>()
+
         return merged.filter(item => {
           const key = item.id
           if (!key || seen.has(key)) return false
@@ -384,87 +414,187 @@ export const FeedPage: React.FC<Props> = ({
     }))
   }
 
-  const renderCard = (post: FeedPost) => {
+  const openRouteDirect = (post: FeedPost) => {
+    if (!post.routeId) return
+    onOpenRoutes(post.city, post.routeId)
+  }
+
+  const renderImageSlider = (post: FeedPost, variant: 'card' | 'modal' = 'card') => {
     const visibleImages = getVisibleImages(post)
     const currentImageIndex = getPostImageIndex(post.id, visibleImages.length)
     const currentImage = visibleImages[currentImageIndex] || ''
+    const isModal = variant === 'modal'
 
+    return (
+      <div className={isModal ? 'feed-post-image-wrap' : 'feed-card-media'}>
+        {visibleImages.length > 1 && (
+          <button
+            type="button"
+            className="feed-carousel-btn left"
+            onClick={e => {
+              e.stopPropagation()
+              showPrevPostImage(post.id, visibleImages.length)
+            }}
+          >
+            ‹
+          </button>
+        )}
+
+        <img
+          src={currentImage}
+          alt={post.title}
+          className={isModal ? 'feed-post-image' : 'feed-card-image'}
+          onError={() => {
+            setFailedImages(prev => ({
+              ...prev,
+              [`${post.id}_${currentImage}`]: true,
+            }))
+          }}
+        />
+
+        <div className="feed-card-badges">
+          <span className="feed-card-badge primary">{getPostTypeLabel(post.type)}</span>
+          <span className="feed-card-badge">{post.city}</span>
+        </div>
+
+        {visibleImages.length > 1 && (
+          <button
+            type="button"
+            className="feed-carousel-btn right"
+            onClick={e => {
+              e.stopPropagation()
+              showNextPostImage(post.id, visibleImages.length)
+            }}
+          >
+            ›
+          </button>
+        )}
+
+        {visibleImages.length > 1 && (
+          <div className="feed-card-dots">
+            {visibleImages.map((img, idx) => (
+              <button
+                key={`${post.id}_${img}_${idx}`}
+                type="button"
+                className={`feed-card-dot ${idx === currentImageIndex ? 'active' : ''}`}
+                onClick={e => {
+                  e.stopPropagation()
+                  setPostImageIndex(post.id, idx)
+                }}
+                aria-label={`Показать фото ${idx + 1}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderCard = (post: FeedPost) => {
     const isLiked = likedPostIds.includes(post.id)
     const isSaved = savedPostIds.includes(post.id)
 
     return (
-      <article key={post.id} className="feed-card" onClick={() => setOpenedPost(post)}>
-        <div className="feed-image-wrap">
-          <div className="feed-image-overlay">
-            <div className="feed-image-chip">
-              {post.type === 'route'
-                ? 'Маршрут'
-                : post.type === 'moment'
-                  ? 'Момент'
-                  : 'Место'}
+      <article key={post.id} className="feed-card">
+        <div className="feed-card-header">
+          <div className="feed-card-author">
+            <div className="feed-card-avatar">
+              {(post.authorName || 'П').slice(0, 1).toUpperCase()}
             </div>
-            <div className="feed-image-chip">{post.city}</div>
+            <div className="feed-card-author-meta">
+              <div className="feed-card-author-name">{post.authorName || 'Путешественник'}</div>
+              <div className="feed-card-author-subtitle">
+                {post.city} · {formatRelativeDate(post.publishedAt || post.createdAt)}
+              </div>
+            </div>
           </div>
 
-          {visibleImages.length > 1 && (
-            <button
-              type="button"
-              className="feed-carousel-btn left"
-              onClick={e => {
-                e.stopPropagation()
-                showPrevPostImage(post.id, visibleImages.length)
-              }}
-            >
-              ‹
-            </button>
-          )}
-
-          <img
-            src={currentImage}
-            alt={post.title}
-            className="feed-image"
-            onError={() => {
-              setFailedImages(prev => ({
-                ...prev,
-                [`${post.id}_${currentImage}`]: true,
-              }))
-            }}
-          />
-
-          {visibleImages.length > 1 && (
-            <button
-              type="button"
-              className="feed-carousel-btn right"
-              onClick={e => {
-                e.stopPropagation()
-                showNextPostImage(post.id, visibleImages.length)
-              }}
-            >
-              ›
-            </button>
-          )}
-
-          {visibleImages.length > 1 && (
-            <div className="feed-carousel-counter">
-              {currentImageIndex + 1} / {visibleImages.length}
-            </div>
-          )}
+          <button
+            type="button"
+            className="feed-card-more"
+            onClick={() => setOpenedPost(post)}
+            aria-label="Открыть публикацию"
+          >
+            •••
+          </button>
         </div>
 
-        <div className="feed-content">
-          <div className="feed-title">{post.title}</div>
-          <div className="feed-description">{post.description}</div>
+        {renderImageSlider(post, 'card')}
 
-          <div className="feed-meta-line">
-            {post.dayTitle && <span>{post.dayTitle}</span>}
-            {typeof post.distanceKm !== 'undefined' && <span>~ {post.distanceKm} км</span>}
-            {post.difficulty && <span>{routeDifficultyLabel(post.difficulty)}</span>}
-            {post.pointsCount !== undefined && <span>{post.pointsCount} точек</span>}
+        <div className="feed-card-actions-top">
+          <div className="feed-card-actions-left">
+            <button
+              type="button"
+              className={`feed-icon-btn ${isLiked ? 'active' : ''}`}
+              onClick={() => toggleLike(post.id)}
+            >
+              ❤️
+            </button>
+
+            <button
+              type="button"
+              className="feed-icon-btn"
+              onClick={() => setOpenedPost(post)}
+            >
+              💬
+            </button>
+
+            <button
+              type="button"
+              className="feed-icon-btn"
+              onClick={() => openRouteDirect(post)}
+              disabled={!post.routeId}
+            >
+              🧭
+            </button>
           </div>
 
-          {post.previewPoints.length > 0 && post.type === 'route' && (
+          <button
+            type="button"
+            className={`feed-icon-btn ${isSaved ? 'active' : ''}`}
+            onClick={() => toggleSave(post.id)}
+          >
+            🔖
+          </button>
+        </div>
+
+        <div className="feed-card-content">
+          <div className="feed-card-stats-line">
+            <strong>{post.likes + (isLiked ? 1 : 0)}</strong> нравится
+            {typeof post.commentsCount === 'number' && post.commentsCount > 0 && (
+              <span className="feed-muted-inline"> · {post.commentsCount} комментариев</span>
+            )}
+          </div>
+
+          <h3 className="feed-card-title">{post.title}</h3>
+
+          {post.description && (
+            <div className="feed-card-description">
+              {post.description}
+            </div>
+          )}
+
+          <div className="feed-card-meta-row">
+            {post.dayTitle && <span className="feed-meta-chip">{post.dayTitle}</span>}
+            {typeof post.distanceKm !== 'undefined' && (
+              <span className="feed-meta-chip">~ {post.distanceKm} км</span>
+            )}
+            {post.difficulty && (
+              <span className="feed-meta-chip">{routeDifficultyLabel(post.difficulty)}</span>
+            )}
+            {typeof post.pointsCount !== 'undefined' && (
+              <span className="feed-meta-chip">{post.pointsCount} точек</span>
+            )}
+            {typeof post.daysCount !== 'undefined' && (
+              <span className="feed-meta-chip">
+                {post.daysCount} {declension('день', 'дня', 'дней', post.daysCount)}
+              </span>
+            )}
+          </div>
+
+          {post.previewPoints.length > 0 && (
             <div className="feed-preview-points">
-              {post.previewPoints.map(point => (
+              {post.previewPoints.slice(0, 5).map(point => (
                 <span key={`${post.id}_${normalizeText(point)}`} className="feed-preview-point">
                   {point}
                 </span>
@@ -472,59 +602,24 @@ export const FeedPage: React.FC<Props> = ({
             </div>
           )}
 
-          <div className="feed-actions">
+          <div className="feed-card-bottom-row">
             <button
               type="button"
-              className={`feed-action-btn ${isLiked ? 'active' : ''}`}
-              onClick={e => {
-                e.stopPropagation()
-                toggleLike(post.id)
-              }}
+              className="feed-card-link-btn"
+              onClick={() => setOpenedPost(post)}
             >
-              ❤️ {post.likes + (isLiked ? 1 : 0)}
-            </button>
-
-            <button
-              type="button"
-              className={`feed-action-btn ${isSaved ? 'active' : ''}`}
-              onClick={e => {
-                e.stopPropagation()
-                toggleSave(post.id)
-              }}
-            >
-              🔖 Сохранить
+              Подробнее
             </button>
 
             <button
               type="button"
               className="feed-open-route-btn"
-              onClick={e => {
-                e.stopPropagation()
-                onOpenRoutes(post.city, post.routeId || undefined)
-              }}
+              onClick={() => openRouteDirect(post)}
+              disabled={!post.routeId}
             >
-              Открыть
+              Открыть маршрут
             </button>
           </div>
-
-          {visibleImages.length > 1 && (
-            <div className="feed-actions" style={{ marginTop: 10 }}>
-              {visibleImages.map((img, idx) => (
-                <button
-                  key={`${post.id}_${img}_${idx}`}
-                  type="button"
-                  className={idx === currentImageIndex ? 'feed-action-btn active' : 'feed-action-btn'}
-                  onClick={e => {
-                    e.stopPropagation()
-                    setPostImageIndex(post.id, idx)
-                  }}
-                  style={{ padding: '8px 10px', minWidth: 40 }}
-                >
-                  {idx + 1}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </article>
     )
@@ -533,9 +628,6 @@ export const FeedPage: React.FC<Props> = ({
   const renderModal = () => {
     if (!openedPost) return null
 
-    const visibleImages = getVisibleImages(openedPost)
-    const currentImageIndex = getPostImageIndex(openedPost.id, visibleImages.length)
-    const currentImage = visibleImages[currentImageIndex] || ''
     const isLiked = likedPostIds.includes(openedPost.id)
     const isSaved = savedPostIds.includes(openedPost.id)
 
@@ -550,60 +642,31 @@ export const FeedPage: React.FC<Props> = ({
             ✕
           </button>
 
-          <div className="feed-post-image-wrap">
-            {visibleImages.length > 1 && (
-              <button
-                type="button"
-                className="feed-carousel-btn left"
-                onClick={() => showPrevPostImage(openedPost.id, visibleImages.length)}
-              >
-                ‹
-              </button>
-            )}
-
-            <img
-              src={currentImage}
-              alt={openedPost.title}
-              className="feed-post-image"
-              onError={() => {
-                setFailedImages(prev => ({
-                  ...prev,
-                  [`${openedPost.id}_${currentImage}`]: true,
-                }))
-              }}
-            />
-
-            {visibleImages.length > 1 && (
-              <button
-                type="button"
-                className="feed-carousel-btn right"
-                onClick={() => showNextPostImage(openedPost.id, visibleImages.length)}
-              >
-                ›
-              </button>
-            )}
-
-            {visibleImages.length > 1 && (
-              <div className="feed-carousel-counter">
-                {currentImageIndex + 1} / {visibleImages.length}
-              </div>
-            )}
-          </div>
+          {renderImageSlider(openedPost, 'modal')}
 
           <div className="feed-post-body">
+            <div className="feed-post-author-row">
+              <div className="feed-card-avatar">
+                {(openedPost.authorName || 'П').slice(0, 1).toUpperCase()}
+              </div>
+              <div>
+                <div className="feed-card-author-name">{openedPost.authorName || 'Путешественник'}</div>
+                <div className="feed-card-author-subtitle">
+                  {openedPost.city} · {formatRelativeDate(openedPost.publishedAt || openedPost.createdAt)}
+                </div>
+              </div>
+            </div>
+
             <div className="feed-post-topline">
-              <span className="feed-type">
-                {openedPost.type === 'route'
-                  ? 'Маршрут'
-                  : openedPost.type === 'moment'
-                    ? 'Момент'
-                    : 'Место'}
-              </span>
+              <span className="feed-type">{getPostTypeLabel(openedPost.type)}</span>
               <span className="feed-city-tag">{openedPost.city}</span>
             </div>
 
             <div className="feed-post-title">{openedPost.title}</div>
-            <div className="feed-post-description">{openedPost.description}</div>
+
+            {openedPost.description && (
+              <div className="feed-post-description">{openedPost.description}</div>
+            )}
 
             <div className="feed-post-stats">
               <div className="feed-post-stat">
@@ -624,7 +687,7 @@ export const FeedPage: React.FC<Props> = ({
                     ? `~${openedPost.distanceKm} км`
                     : '—'}
                 </div>
-                <div className="feed-post-stat-label">Маршрут</div>
+                <div className="feed-post-stat-label">Дистанция</div>
               </div>
 
               <div className="feed-post-stat">
@@ -635,17 +698,13 @@ export const FeedPage: React.FC<Props> = ({
               </div>
             </div>
 
-            {openedPost.daysCount !== undefined && (
-              <div className="feed-post-meta-extra">
-                {openedPost.daysCount}{' '}
-                {declension('день', 'дня', 'дней', openedPost.daysCount)}
-              </div>
-            )}
-
             {openedPost.previewPoints.length > 0 && (
               <div className="feed-post-points">
                 {openedPost.previewPoints.map(point => (
-                  <span key={`${openedPost.id}_${normalizeText(point)}`} className="feed-post-point-chip">
+                  <span
+                    key={`${openedPost.id}_${normalizeText(point)}`}
+                    className="feed-post-point-chip"
+                  >
                     {point}
                   </span>
                 ))}
@@ -672,7 +731,8 @@ export const FeedPage: React.FC<Props> = ({
               <button
                 type="button"
                 className="feed-open-route-btn"
-                onClick={() => onOpenRoutes(openedPost.city, openedPost.routeId || undefined)}
+                onClick={() => openRouteDirect(openedPost)}
+                disabled={!openedPost.routeId}
               >
                 Открыть маршрут
               </button>
@@ -685,16 +745,27 @@ export const FeedPage: React.FC<Props> = ({
 
   return (
     <div className="feed-page">
-      <div className="feed-header">
-        <h2>Лента</h2>
-        <div className="feed-subtitle">
-          Маршруты, достопримечательности и моменты в формате social travel feed
+      <div className="feed-shell">
+        <div className="feed-topbar">
+          <div>
+            <h2 className="feed-page-title">Лента путешествий</h2>
+            <div className="feed-subtitle">
+              Маршруты, места и travel-публикации в единой ленте
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div className="feed-compose-card">
-        <div className="feed-compose-left">
-          <div className="feed-compose-avatar">🧭</div>
+        <div className="feed-compose-card">
+          <div className="feed-compose-left">
+            <div className="feed-compose-avatar">🧭</div>
+            <div className="feed-compose-texts">
+              <div className="feed-compose-title">Поделись новым маршрутом</div>
+              <div className="feed-compose-subtitle">
+                Добавляй места, собирай маршрут и публикуй его в ленту
+              </div>
+            </div>
+          </div>
+
           <div className="feed-compose-actions">
             {onCreateRoute && (
               <button type="button" className="feed-compose-main-btn" onClick={onCreateRoute}>
@@ -703,52 +774,46 @@ export const FeedPage: React.FC<Props> = ({
             )}
             {onCreatePlace && (
               <button type="button" className="feed-compose-icon-btn" onClick={onCreatePlace}>
-                ＋
+                Место
               </button>
             )}
             {onCreateMoment && (
               <button type="button" className="feed-compose-icon-btn" onClick={onCreateMoment}>
-                ☰
+                Момент
               </button>
             )}
           </div>
         </div>
+
+        {isLoadingFeed && (
+          <div className="feed-state-message">Загружаем ленту…</div>
+        )}
+
+        {!isLoadingFeed && feedError && (
+          <div className="feed-state-message error">{feedError}</div>
+        )}
+
+        {!isLoadingFeed && !feedError && visibleFeedPosts.length === 0 && (
+          <div className="feed-state-message">В ленте пока нет публикаций</div>
+        )}
+
+        <div className="feed-list">
+          {visibleFeedPosts.map(renderCard)}
+        </div>
+
+        {!isLoadingFeed && !feedError && hasMore && (
+          <div className="feed-load-more-wrap">
+            <button
+              type="button"
+              className="feed-open-route-btn"
+              onClick={loadMore}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? 'Загружаем…' : 'Показать ещё'}
+            </button>
+          </div>
+        )}
       </div>
-
-      {isLoadingFeed && (
-        <div style={{ padding: '12px 4px 20px', color: '#64748b' }}>
-          Загружаем ленту…
-        </div>
-      )}
-
-      {!isLoadingFeed && feedError && (
-        <div style={{ padding: '12px 4px 20px', color: '#dc2626' }}>
-          {feedError}
-        </div>
-      )}
-
-      {!isLoadingFeed && !feedError && visibleFeedPosts.length === 0 && (
-        <div style={{ padding: '12px 4px 20px', color: '#64748b' }}>
-          В ленте пока нет публикаций
-        </div>
-      )}
-
-      <div className="feed-list">
-        {visibleFeedPosts.map(renderCard)}
-      </div>
-
-      {!isLoadingFeed && !feedError && hasMore && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '18px 0 8px' }}>
-          <button
-            type="button"
-            className="feed-open-route-btn"
-            onClick={loadMore}
-            disabled={isLoadingMore}
-          >
-            {isLoadingMore ? 'Загружаем…' : 'Показать ещё'}
-          </button>
-        </div>
-      )}
 
       {renderModal()}
     </div>
