@@ -112,9 +112,19 @@ type PlaceFullData = {
   routes: PlaceFullRoute[]
 }
 
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://boop-ru-miniapp.vercel.app/'
+const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
+
+const API_BASE_URL = RAW_API_BASE_URL
+  ? RAW_API_BASE_URL.replace(/\/+$/, '')
+  : (typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+    ? 'http://localhost:3000'
+    : ''
+
+const buildApiUrl = (path: string): string => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath
+}
 
 const CLOUD_BASE_URL =
   (import.meta.env.VITE_CLOUD_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -356,12 +366,18 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
 }
 
 async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
-  const url = new URL(`${API_BASE_URL}/api/feed`)
+  const url = new URL(buildApiUrl('/api/feed'), window.location.origin)
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('offset', String(offset))
 
-  const res = await fetch(url.toString())
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    credentials: 'omit',
+  })
+
   if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    console.error('Feed request failed:', res.status, text)
     throw new Error(`Feed request failed: ${res.status}`)
   }
 
@@ -378,7 +394,14 @@ async function fetchFeed(limit = 24, offset = 0): Promise<FeedApiResponse> {
 }
 
 async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
-  const res = await fetch(`${API_BASE_URL}/api/places/${encodeURIComponent(placeId)}/full`)
+  const res = await fetch(
+    buildApiUrl(`/api/places/${encodeURIComponent(placeId)}/full`),
+    {
+      method: 'GET',
+      credentials: 'omit',
+    }
+  )
+
   if (!res.ok) return null
 
   const data = await res.json()
@@ -386,7 +409,6 @@ async function fetchPlaceFull(placeId: string): Promise<PlaceFullData | null> {
 
   return data.data as PlaceFullData
 }
-
 export const FeedPage: React.FC<Props> = ({
   onOpenRoutes,
   onOpenPlace,
