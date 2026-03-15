@@ -536,6 +536,7 @@ export const FeedPage: React.FC<Props> = ({
     if (!post.placeId) return
     if (onOpenPlace) {
       onOpenPlace(post.placeId)
+      setOpenedPost(null)
     } else {
       setOpenedPost(post)
     }
@@ -545,6 +546,21 @@ export const FeedPage: React.FC<Props> = ({
     if (!openedPost) return
     onOpenRoutes(openedPost.city, routeId)
     setOpenedPost(null)
+  }
+
+  const openPrimaryRouteForPlace = (post: FeedPost) => {
+    const directRouteId = String(post.routeId || '').trim()
+    if (directRouteId) {
+      onOpenRoutes(post.city, directRouteId)
+      setOpenedPost(null)
+      return
+    }
+
+    const linkedRouteId = openedPlaceContext?.routes?.[0]?.id
+    if (linkedRouteId) {
+      onOpenRoutes(post.city, linkedRouteId)
+      setOpenedPost(null)
+    }
   }
 
   const renderImageSlider = (post: FeedPost, variant: 'card' | 'modal' = 'card') => {
@@ -667,6 +683,10 @@ export const FeedPage: React.FC<Props> = ({
     const isLiked = likedPostIds.includes(post.id)
     const isSaved = savedPostIds.includes(post.id)
 
+    const hasRouteForPlace =
+      post.type === 'place' &&
+      (Boolean(post.routeId) || Boolean(post.routePointId))
+
     return (
       <article key={post.id} className="feed-card">
         <div className="feed-card-header">
@@ -713,15 +733,28 @@ export const FeedPage: React.FC<Props> = ({
             </button>
 
             {post.type === 'place' ? (
-              <button
-                type="button"
-                className="feed-icon-btn"
-                onClick={() => openPlaceDirect(post)}
-                disabled={!post.placeId}
-                title="Открыть место"
-              >
-                📍
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="feed-icon-btn"
+                  onClick={() => openPlaceDirect(post)}
+                  disabled={!post.placeId}
+                  title="Открыть место"
+                >
+                  📍
+                </button>
+
+                {hasRouteForPlace && (
+                  <button
+                    type="button"
+                    className="feed-icon-btn"
+                    onClick={() => openPrimaryRouteForPlace(post)}
+                    title="Открыть маршрут"
+                  >
+                    🧭
+                  </button>
+                )}
+              </>
             ) : (
               <button
                 type="button"
@@ -796,14 +829,25 @@ export const FeedPage: React.FC<Props> = ({
             </button>
 
             {post.type === 'place' ? (
-              <button
-                type="button"
-                className="feed-open-route-btn"
-                onClick={() => openPlaceDirect(post)}
-                disabled={!post.placeId}
-              >
-                Открыть место
-              </button>
+              <div className="feed-card-inline-actions">
+                <button
+                  type="button"
+                  className="feed-open-route-btn"
+                  onClick={() => openPlaceDirect(post)}
+                  disabled={!post.placeId}
+                >
+                  Открыть место
+                </button>
+
+                <button
+                  type="button"
+                  className="feed-open-route-btn secondary"
+                  onClick={() => openPrimaryRouteForPlace(post)}
+                  disabled={!hasRouteForPlace}
+                >
+                  Маршрут
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -872,6 +916,14 @@ export const FeedPage: React.FC<Props> = ({
 
     const isLiked = likedPostIds.includes(openedPost.id)
     const isSaved = savedPostIds.includes(openedPost.id)
+
+    const hasRouteForPlace =
+      openedPost.type === 'place' &&
+      (
+        Boolean(openedPost.routeId) ||
+        Boolean(openedPost.routePointId) ||
+        Boolean(openedPlaceContext?.routes?.length)
+      )
 
     return (
       <div className="feed-post-backdrop" onClick={() => setOpenedPost(null)}>
@@ -947,14 +999,25 @@ export const FeedPage: React.FC<Props> = ({
               </button>
 
               {openedPost.type === 'place' ? (
-                <button
-                  type="button"
-                  className="feed-open-route-btn"
-                  onClick={() => openPlaceDirect(openedPost)}
-                  disabled={!openedPost.placeId}
-                >
-                  Открыть место
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="feed-open-route-btn"
+                    onClick={() => openPlaceDirect(openedPost)}
+                    disabled={!openedPost.placeId}
+                  >
+                    Открыть место
+                  </button>
+
+                  <button
+                    type="button"
+                    className="feed-open-route-btn secondary"
+                    onClick={() => openPrimaryRouteForPlace(openedPost)}
+                    disabled={!hasRouteForPlace}
+                  >
+                    Открыть маршрут
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
