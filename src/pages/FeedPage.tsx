@@ -162,7 +162,11 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
 
   return {
     ...post,
-    routeId: post.routeId || '',
+    id: String(post.id || ''),
+    type: (post.type || 'place') as FeedPostType,
+    routeId: String(post.routeId || ''),
+    placeId: post.placeId ? String(post.placeId) : '',
+    cityId: post.cityId ? String(post.cityId) : '',
     city: post.city || '',
     cityFolder: post.cityFolder || '',
     title: post.title || 'Без названия',
@@ -173,13 +177,21 @@ const normalizeFeedPost = (post: FeedPost): FeedPost => {
     images: normalizedImages,
     previewPoints: Array.isArray(post.previewPoints) ? post.previewPoints : [],
     likes: Number(post.likes || 0),
+    commentsCount: Number(post.commentsCount || 0),
+    savesCount: Number(post.savesCount || 0),
+    daysCount: post.daysCount != null ? Number(post.daysCount) : undefined,
+    pointsCount: post.pointsCount != null ? Number(post.pointsCount) : undefined,
+    distanceKm: post.distanceKm != null ? Number(post.distanceKm) : undefined,
+    score: post.score != null ? Number(post.score) : 0,
+    createdAt: post.createdAt || new Date().toISOString(),
+    publishedAt: post.publishedAt || post.createdAt || new Date().toISOString(),
   }
 }
 
-async function fetchFeed(): Promise<FeedPost[]> {
+async function fetchFeed(limit = 50, offset = 0): Promise<FeedApiResponse> {
   const url = new URL(`${API_BASE_URL}/api/feed`)
-  url.searchParams.set('limit', '50')
-  url.searchParams.set('offset', '0')
+  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('offset', String(offset))
 
   const res = await fetch(url.toString())
   if (!res.ok) {
@@ -192,7 +204,10 @@ async function fetchFeed(): Promise<FeedPost[]> {
     throw new Error('Feed API returned ok=false')
   }
 
-  return Array.isArray(data.items) ? data.items.map(normalizeFeedPost) : []
+  return {
+    ...data,
+    items: Array.isArray(data.items) ? data.items.map(normalizeFeedPost) : [],
+  }
 }
 
 export const FeedPage: React.FC<Props> = ({
@@ -206,9 +221,14 @@ export const FeedPage: React.FC<Props> = ({
   const [imageIndexes, setImageIndexes] = useState<Record<string, number>>({})
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [openedPost, setOpenedPost] = useState<FeedPost | null>(null)
+
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([])
   const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(true)
   const [feedError, setFeedError] = useState<string>('')
+
+  const [offset, setOffset] = useState<number>(0)
+  const [hasMore, setHasMore] = useState<boolean>(false)
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false)
 
   useEffect(() => {
     setLikedPostIds(readLikedPostIds())
@@ -228,20 +248,24 @@ export const FeedPage: React.FC<Props> = ({
   useEffect(() => {
     let cancelled = false
 
-    const loadFeed = async () => {
+    const loadInitialFeed = async () => {
       setIsLoadingFeed(true)
       setFeedError('')
 
       try {
-        const items = await fetchFeed()
-        if (!cancelled) {
-          setFeedPosts(items)
-        }
+        const data = await fetchFeed(50, 0)
+
+        if (cancelled) return
+
+        setFeedPosts(data.items || [])
+        setOffset(data.nextOffset ?? (data.items?.length || 0))
+        setHasMore(Boolean(data.hasMore))
       } catch (error) {
         console.error('Feed load error:', error)
         if (!cancelled) {
           setFeedPosts([])
           setFeedError('Не удалось загрузить ленту')
+          setHasMore(false)
         }
       } finally {
         if (!cancelled) {
@@ -250,12 +274,44 @@ export const FeedPage: React.FC<Props> = ({
       }
     }
 
-    loadFeed()
+    loadInitialFeed()
 
     return () => {
       cancelled = true
     }
   }, [])
+
+  const loadMore = async () => {
+    if (isLoadingMore || !hasMore) return
+
+    setIsLoadingMore(true)
+
+    try {
+      const data = await fetchFeed(50, offset)
+
+      setFeedPosts(prev => {
+        const merged = [...prev, ...(data.items || [])]
+        const seen = new Set<string>()
+        return merged.filter(item => {
+          const key = item.id
+          if (!key || seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+      })
+
+      setOffset(data.nextOffset ?? offset)
+      setHasMore(Boolean(data.hasMore))
+    } catch (error) {
+      console.error('Feed loadMore error:', error)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
+
+  const visibleFeedPosts = useMemo(() => {
+    return feedPosts
+  }, [feedPosts])
 
   const toggleLike = (postId: string) => {
     setLikedPostIds(prev => {
@@ -327,10 +383,6 @@ export const FeedPage: React.FC<Props> = ({
       [postId]: index,
     }))
   }
-
-  const visibleFeedPosts = useMemo(() => {
-    return feedPosts
-  }, [feedPosts])
 
   const renderCard = (post: FeedPost) => {
     const visibleImages = getVisibleImages(post)
@@ -407,6 +459,7 @@ export const FeedPage: React.FC<Props> = ({
             {post.dayTitle && <span>{post.dayTitle}</span>}
             {typeof post.distanceKm !== 'undefined' && <span>~ {post.distanceKm} км</span>}
             {post.difficulty && <span>{routeDifficultyLabel(post.difficulty)}</span>}
+            {post.pointsCount !== undefined && <span>{post.pointsCount} точек</span>}
           </div>
 
           {post.previewPoints.length > 0 && post.type === 'route' && (
@@ -683,6 +736,19 @@ export const FeedPage: React.FC<Props> = ({
       <div className="feed-list">
         {visibleFeedPosts.map(renderCard)}
       </div>
+
+      {!isLoadingFeed && !feedError && hasMore && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '18px 0 8px' }}>
+          <button
+            type="button"
+            className="feed-open-route-btn"
+            onClick={loadMore}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? 'Загружаем…' : 'Показать ещё'}
+          </button>
+        </div>
+      )}
 
       {renderModal()}
     </div>
